@@ -40,7 +40,7 @@ pub struct Node {
 }
 
 impl Node {
-	fn new() -> Node {
+	pub fn new() -> Node {
 		Node {
 			data: NodeData {
 				id: 0,
@@ -55,13 +55,13 @@ impl Node {
 		}
 	}
 
-	async fn join(&mut self, id: Digest) {
+	pub async fn join(&mut self, id: Digest) {
 		self.data.predecessor = 0;
 		let node = self.connection_map.get(&id).unwrap();
 		self.data.successor = node.find_successor(context::current(), id).await;
 	}
 
-	async fn stabilize(&mut self) {
+	pub async fn stabilize(&mut self) {
 		let ctx = context::current();
 		let node = self.connection_map.get(&self.data.successor).unwrap();
 		let x = node.get_data(ctx).await.predecessor;
@@ -71,7 +71,7 @@ impl Node {
 		node.notify(ctx, self.data.id).await;
 	}
 
-	async fn fix_fingers(&mut self) {
+	pub async fn fix_fingers(&mut self) {
 		let mut rng = rand::thread_rng();
 		let i = rng.gen_range(1..NUM_BITS);
 		self.finger_table[i].node = self.find_successor(context::current(), self.finger_table[i].start).await;
