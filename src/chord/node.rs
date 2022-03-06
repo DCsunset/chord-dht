@@ -114,22 +114,32 @@ impl NodeService for NodeServer {
 		future::ready(self.successor.clone())
 	}
 
+	// Figure 4: n.find_successor
 	type FindSuccessorFut = future::Ready<Node>;
 	fn find_successor(self, ctx: context::Context, id: Digest) -> Self::FindSuccessorFut {
 		let n = self.find_predecessor(ctx, id).await;
-		future::ready(n.successor)
+		let node = self.get_connection(&n).await;
+		let succ = node.get_successor(context::current()).await.unwrap().unwrap();
+		future::ready(succ)
 	}
 
+	// Figure 4: n.find_predecessor
 	type FindPredecessorFut = future::Ready<Node>;
 	fn find_predecessor(self, ctx: context::Context, id: Digest) -> Self::FindPredecessorFut {
 		let n = self.node;
-		while id > n.id && id < n.successor {
-			let node = self.connection_map.get(&n.id);
-			let n_id = node.unwrap().closest_preceding_finger(ctx, id).await;
+		// TODO: check when its empty
+		let succ = self.successor.unwrap();
+		while id > n.id && id < succ.id {
+			let node = self.get_connection(&n).await;
+			n = node.closest_preceding_finger(ctx, id).await;
+			let new_node = self.get_connection(&n).await;
+			// TODO: handle empty
+      succ = new_node.get_successor(context::current()).await.unwrap().unwrap();
 		}
 		future::ready(n)
 	}
 
+	// Figure 4: n.closest_preceding_finger
 	type ClosestPrecedingFingerFut = future::Ready<Node>;
 	fn closest_preceding_finger(self, _: context::Context, id: Digest) -> Self::ClosestPrecedingFingerFut {
 		for i in (0..NUM_BITS).rev() {
