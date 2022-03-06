@@ -11,6 +11,7 @@ const NUM_BITS: usize = size_of::<Digest>() * 8;
 // Data part of the node
 #[derive(Debug, Clone)]
 struct NodeData {
+	addr: String,
 	id: Digest,
 	successor: Digest,
 	predecessor: Digest
@@ -45,7 +46,8 @@ impl Node {
 			data: NodeData {
 				id: 0,
 				successor: 0,
-				predecessor: 0
+				predecessor: 0,
+				addr: String::from("")
 			},
 			finger_table: [Finger {
 				start: 0,
