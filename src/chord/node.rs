@@ -2,7 +2,7 @@ use std::{mem::size_of, collections::HashMap};
 use rand::Rng;
 
 use tarpc::{context};
-use futures::future;
+use futures::{future, executor};
 
 type Digest = u64;
 // number of bits
@@ -10,15 +10,9 @@ const NUM_BITS: usize = size_of::<Digest>() * 8;
 
 // Data part of the node
 #[derive(Debug, Clone)]
-struct Node {
+pub struct Node {
 	addr: String,
 	id: Digest
-}
-
-#[derive(Clone)]
-struct Finger {
-	start: Digest,
-	node: Option<Node>
 }
 
 #[tarpc::service]
@@ -37,23 +31,27 @@ pub struct NodeServer {
 	node: Node,
 	successor: Option<Node>,
 	predecessor: Option<Node>,
-	finger_table: [Finger; NUM_BITS],
+	finger_table: [Option<Node>; NUM_BITS as usize],
 	// connection to remote nodes
 	connection_map: HashMap<Digest, NodeServiceClient>
 }
 
 impl NodeServer {
 	pub fn new(node: &Node) -> NodeServer {
+		const INIT_FINGER: Option<Node> = None;
 		NodeServer {
 			node: node.clone(),
 			successor: None,
 			predecessor: None,
-			finger_table: [Finger {
-				start: 0,
-				node: None
-			}; 64],
+			finger_table: [INIT_FINGER; NUM_BITS],
 			connection_map: HashMap::new()
 		}
+	}
+
+	// Calculate start field of finger table (see Table 1)
+	// k in [0, m)
+	pub fn finger_table_start(&self, k: usize) -> u64 {
+		(self.node.id + (2u64 << k)) % (NUM_BITS as u64)
 	}
 	
 	pub async fn get_connection(&mut self, node: &Node) -> &NodeServiceClient {
@@ -97,7 +95,7 @@ impl NodeServer {
 	pub async fn fix_fingers(&mut self) {
 		let mut rng = rand::thread_rng();
 		let i = rng.gen_range(1..NUM_BITS);
-		self.finger_table[i].node = Some(self.find_successor(self.finger_table[i].start).await);
+		self.finger_table[i] = Some(self.find_successor(self.finger_table_start(i)).await);
 	}
 
 	// Figure 4: n.find_successor
@@ -125,7 +123,7 @@ impl NodeServer {
 	// Figure 4: n.closest_preceding_finger
 	async fn closest_preceding_finger(&mut self, id: Digest) -> Node {
 		for i in (0..NUM_BITS).rev() {
-			match self.finger_table[i].node.as_ref() {
+			match self.finger_table[i].as_ref() {
 				Some(n) => if n.id > id && n.id < self.node.id {
 					return n.clone();
 				},
@@ -151,38 +149,46 @@ impl NodeServer {
 
 impl NodeService for NodeServer {
 	type GetNodeRpcFut = future::Ready<Node>;
-	fn get_node_rpc(self, ctx: context::Context) -> Self::GetNodeRpcFut {
+	fn get_node_rpc(self, _: context::Context) -> Self::GetNodeRpcFut {
 		future::ready(self.node.clone())
 	}
 
 	type GetPredecessorRpcFut = future::Ready<Option<Node>>;
-	fn get_predecessor_rpc(self, ctx: context::Context) -> Self::GetPredecessorRpcFut {
+	fn get_predecessor_rpc(self, _: context::Context) -> Self::GetPredecessorRpcFut {
 		future::ready(self.predecessor.clone())
 	}
 
 	type GetSuccessorRpcFut = future::Ready<Option<Node>>;
-	fn get_successor_rpc(self, ctx: context::Context) -> Self::GetPredecessorRpcFut {
+	fn get_successor_rpc(self, _: context::Context) -> Self::GetPredecessorRpcFut {
 		future::ready(self.successor.clone())
 	}
 
 	type FindSuccessorRpcFut = future::Ready<Node>;
-	fn find_successor_rpc(self, ctx: context::Context, id: Digest) -> Self::FindSuccessorRpcFut {
-		self.find_successor(id)
+	fn find_successor_rpc(mut self, _: context::Context, id: Digest) -> Self::FindSuccessorRpcFut {
+		future::ready(
+			executor::block_on(self.find_successor(id))
+		)
 	}
 
 	type FindPredecessorRpcFut = future::Ready<Node>;
-	fn find_predecessor_rpc(self, ctx: context::Context, id: Digest) -> Self::FindPredecessorRpcFut {
-		self.find_predecessor(id)
+	fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> Self::FindPredecessorRpcFut {
+		future::ready(
+			executor::block_on(self.find_predecessor(id))
+		)
 	}
 
 	// Figure 4: n.closest_preceding_finger
 	type ClosestPrecedingFingerRpcFut = future::Ready<Node>;
-	fn closest_preceding_finger_rpc(self, _: context::Context, id: Digest) -> Self::ClosestPrecedingFingerRpcFut {
-		self.closest_preceding_finger(id)
+	fn closest_preceding_finger_rpc(mut self, _: context::Context, id: Digest) -> Self::ClosestPrecedingFingerRpcFut {
+		future::ready(
+			executor::block_on(self.closest_preceding_finger(id))
+		)
 	}
 
 	type NotifyRpcFut = future::Ready<()>;
-	fn notify_rpc(self, _: context::Context, node: Node) -> Self::NotifyRpcFut {
-		self.notify(node)
+	fn notify_rpc(mut self, _: context::Context, node: Node) -> Self::NotifyRpcFut {
+		future::ready(
+			executor::block_on(self.notify(node))
+		)
 	}
 }
