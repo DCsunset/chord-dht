@@ -51,7 +51,7 @@ impl NodeServer {
 	// Calculate start field of finger table (see Table 1)
 	// k in [0, m)
 	pub fn finger_table_start(&self, k: usize) -> u64 {
-		(self.node.id + (2u64 << k)) % (NUM_BITS as u64)
+		(self.node.id + (1 << k)) % (NUM_BITS as u64)
 	}
 	
 	pub async fn get_connection(&mut self, node: &Node) -> &NodeServiceClient {
