@@ -54,7 +54,7 @@ impl NodeServer {
 		(self.node.id + (1 << k)) % (NUM_BITS as u64)
 	}
 	
-	pub async fn get_connection(&mut self, node: &Node) -> &NodeServiceClient {
+	async fn get_connection(&mut self, node: &Node) -> &NodeServiceClient {
 		match self.connection_map.get(&node.id) {
 			Some(c) => c,
 			// TODO: connect to the node
@@ -84,7 +84,7 @@ impl NodeServer {
 			// Empty predecessor (TODO: log)
 			None => return
 		};
-		n.notify_rpc(ctx, self_node).await;
+		n.notify_rpc(ctx, self_node).await.unwrap();
 
 		if x.id > self.node.id && x.id < successor.id {
 			self.successor = Some(x);
