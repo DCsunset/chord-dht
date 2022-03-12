@@ -1,7 +1,7 @@
-use std::{mem::size_of, collections::HashMap};
+use std::{mem::size_of, collections::{HashMap, hash_map::Entry}};
 use rand::Rng;
 
-use tarpc::{context};
+use tarpc::{context, serde::Serialize, serde::Deserialize, tokio_serde::formats::Bincode};
 use futures::{future, executor};
 
 type Digest = u64;
@@ -9,7 +9,7 @@ type Digest = u64;
 const NUM_BITS: usize = size_of::<Digest>() * 8;
 
 // Data part of the node
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
 	addr: String,
 	id: Digest
@@ -55,10 +55,15 @@ impl NodeServer {
 	}
 	
 	async fn get_connection(&mut self, node: &Node) -> &NodeServiceClient {
-		match self.connection_map.get(&node.id) {
-			Some(c) => c,
-			// TODO: connect to the node
-			None => panic!()
+		match self.connection_map.entry(node.id) {
+			Entry::Occupied(c) => c.into_mut(),
+			// connect to the node
+			Entry::Vacant(m) => {
+				let transport = tarpc::serde_transport::tcp::connect(node.addr.clone(),Bincode::default);
+				let c = NodeServiceClient::new(tarpc::client::Config::default(), transport.await.unwrap()).spawn();
+				m.insert(c)
+
+			}
 		}
 	}
 
