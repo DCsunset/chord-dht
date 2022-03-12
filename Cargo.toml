@@ -12,3 +12,7 @@ rand = "0.8"
 serde = "1.0"
 anyhow = "1.0"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
