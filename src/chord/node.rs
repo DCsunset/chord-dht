@@ -1,8 +1,8 @@
 use std::{mem::size_of, collections::{HashMap, hash_map::Entry}};
 use rand::Rng;
-
 use tarpc::{context, serde::Serialize, serde::Deserialize, tokio_serde::formats::Bincode};
 use futures::{future, executor};
+
 
 type Digest = u64;
 // number of bits
@@ -11,12 +11,12 @@ const NUM_BITS: usize = size_of::<Digest>() * 8;
 // Data part of the node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
-	addr: String,
-	id: Digest
+	pub id: Digest,
+	pub addr: String
 }
 
 #[tarpc::service]
-trait NodeService {
+pub trait NodeService {
 	async fn get_node_rpc() -> Node;
 	async fn get_predecessor_rpc() -> Option<Node>;
 	async fn get_successor_rpc() -> Option<Node>;
@@ -27,6 +27,7 @@ trait NodeService {
 	async fn notify_rpc(node: Node);
 }
 
+#[derive(Clone)]
 pub struct NodeServer {
 	node: Node,
 	successor: Option<Node>,
@@ -47,6 +48,22 @@ impl NodeServer {
 			connection_map: HashMap::new()
 		}
 	}
+
+	// async fn listen(self) -> anyhow::Result<()> {
+	// 	let mut listener = tarpc::serde_transport::tcp::listen(&self.node.addr, Bincode::default).await?;
+	// 	listener.config_mut().max_frame_length(usize::MAX);
+	// 	listener
+	// 		.filter(|r| future::ready(r.ok()))
+	// 		.map(tarpc::server::BaseChannel::with_defaults)
+	// 		.map(|channel| {
+	// 			channel.execute(self.serve());
+	// 		})
+	// 		// Max 20 channels
+	// 		.buffer_unordered(20)
+	// 		.for_each(|_| async {})
+	// 		.await;
+	// 	Ok(())
+	// }
 
 	// Calculate start field of finger table (see Table 1)
 	// k in [0, m)
@@ -152,6 +169,7 @@ impl NodeServer {
 	}
 }
 
+#[tarpc::server]
 impl NodeService for NodeServer {
 	type GetNodeRpcFut = future::Ready<Node>;
 	fn get_node_rpc(self, _: context::Context) -> Self::GetNodeRpcFut {
