@@ -1,19 +1,33 @@
-use chord_rust::chord::node::{Node, NodeServer, NodeService};
+use chord_rust::chord::{
+	self,
+	node::{NodeServer, NodeService}
+};
 use futures::{future, prelude::*, executor};
 use tarpc::{
 	tokio_serde::formats::Bincode,
-	server::{Channel, incoming::Incoming}};
+	server::{Channel, incoming::Incoming}
+};
+use clap::Parser;
+
+#[derive(Parser)]
+struct Args {
+	/// Local addr to bind (<host>:<port>)
+	#[clap(short, long)]
+	addr: String,
+
+	/// Join an existing node on init (<host>:<port>)
+	#[clap(short, long)]
+	join: String
+}
+
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-	let existing_node = Node {
-		addr: "".to_string(),
-		id: 0
-	};
-	let node = Node {
-		addr: "".to_string(),
-		id: 0
-	};
+	let args = Args::parse();
+
+	let node = chord::construct_node(&args.addr);
+	// TODO: handle cases where node == join_node
+	let join_node = chord::construct_node(&args.join);
 
 	let mut listener = tarpc::serde_transport::tcp::listen(&node.addr, Bincode::default).await?;
 	listener.config_mut().max_frame_length(usize::MAX);
@@ -23,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
         .max_channels_per_key(1, |t| t.transport().peer_addr().unwrap().ip())
     .map(|channel| {
 			let mut server = NodeServer::new(&node);
-			executor::block_on(server.join(&existing_node));
+			executor::block_on(server.join(&join_node));
 
 			channel.execute(server.serve())
 		})

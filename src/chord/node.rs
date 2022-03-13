@@ -1,6 +1,11 @@
 use std::{mem::size_of, collections::{HashMap, hash_map::Entry}};
 use rand::Rng;
-use tarpc::{context, serde::Serialize, serde::Deserialize, tokio_serde::formats::Bincode};
+use tarpc::{
+	context,
+	serde::Serialize,
+	serde::Deserialize,
+	tokio_serde::formats::Bincode
+};
 use futures::{future, executor};
 
 
@@ -48,22 +53,6 @@ impl NodeServer {
 			connection_map: HashMap::new()
 		}
 	}
-
-	// async fn listen(self) -> anyhow::Result<()> {
-	// 	let mut listener = tarpc::serde_transport::tcp::listen(&self.node.addr, Bincode::default).await?;
-	// 	listener.config_mut().max_frame_length(usize::MAX);
-	// 	listener
-	// 		.filter(|r| future::ready(r.ok()))
-	// 		.map(tarpc::server::BaseChannel::with_defaults)
-	// 		.map(|channel| {
-	// 			channel.execute(self.serve());
-	// 		})
-	// 		// Max 20 channels
-	// 		.buffer_unordered(20)
-	// 		.for_each(|_| async {})
-	// 		.await;
-	// 	Ok(())
-	// }
 
 	// Calculate start field of finger table (see Table 1)
 	// k in [0, m)
