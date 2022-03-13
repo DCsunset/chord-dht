@@ -88,7 +88,7 @@ impl NodeServer {
 			None => return
 		};
 
-    let self_node = self.node.clone();
+		let self_node = self.node.clone();
 		let n= self.get_connection(&successor).await;
 		let x= match n.get_predecessor_rpc(ctx).await.unwrap() {
 			Some(v) => v,
@@ -126,7 +126,7 @@ impl NodeServer {
 			n = node.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
 			let new_node = self.get_connection(&n).await;
 			// TODO: handle empty
-      succ = new_node.get_successor_rpc(context::current()).await.unwrap().unwrap();
+			succ = new_node.get_successor_rpc(context::current()).await.unwrap().unwrap();
 		}
 		n
 	}
@@ -146,7 +146,7 @@ impl NodeServer {
 
 	// Figure 7: n.notify
 	async fn notify(&mut self, node: Node) {
-    let new_pred = match self.predecessor.as_ref() {
+		let new_pred = match self.predecessor.as_ref() {
 			Some(v) => if node.id > v.id && node.id < self.node.id {
 				node
 			} else {
@@ -154,7 +154,7 @@ impl NodeServer {
 			},
 			None => node
 		};
-    self.predecessor = Some(new_pred);
+		self.predecessor = Some(new_pred);
 	}
 }
 
