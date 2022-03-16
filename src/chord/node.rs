@@ -6,7 +6,7 @@ use tarpc::{
 	serde::Deserialize,
 	tokio_serde::formats::Bincode
 };
-use futures::{future, executor, TryFutureExt};
+use futures::{future, executor};
 
 
 type Digest = u64;
@@ -44,12 +44,19 @@ pub struct NodeServer {
 
 impl NodeServer {
 	pub fn new(node: &Node) -> NodeServer {
+		// init a ring with only one node
+		// (see second part of n.join in Figure 6)
 		const INIT_FINGER: Option<Node> = None;
+		let mut finger_table = [INIT_FINGER; NUM_BITS];
+		for i in 0..NUM_BITS {
+			finger_table[i] = Some(node.clone());
+		}
+
 		NodeServer {
 			node: node.clone(),
-			successor: None,
-			predecessor: None,
-			finger_table: [INIT_FINGER; NUM_BITS],
+			successor: Some(node.clone()),
+			predecessor: Some(node.clone()),
+			finger_table: finger_table,
 			connection_map: HashMap::new()
 		}
 	}
