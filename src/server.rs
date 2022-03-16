@@ -17,7 +17,7 @@ struct Args {
 
 	/// Join an existing node on init (<host>:<port>)
 	#[clap(short, long)]
-	join: String
+	join: Option<String>
 }
 
 
@@ -27,7 +27,10 @@ async fn main() -> anyhow::Result<()> {
 
 	let node = chord::construct_node(&args.addr);
 	// TODO: handle cases where node == join_node
-	let join_node = chord::construct_node(&args.join);
+	let join_node: Option<chord::Node> = match args.join.as_ref() {
+		Some(n) => Some(chord::construct_node(n)),
+		None => None
+	};
 
 	let mut listener = tarpc::serde_transport::tcp::listen(&node.addr, Bincode::default).await?;
 	listener.config_mut().max_frame_length(usize::MAX);
@@ -37,7 +40,10 @@ async fn main() -> anyhow::Result<()> {
         .max_channels_per_key(1, |t| t.transport().peer_addr().unwrap().ip())
     .map(|channel| {
 			let mut server = NodeServer::new(&node);
-			executor::block_on(server.join(&join_node));
+			match join_node.as_ref() {
+				Some(n) => executor::block_on(server.join(n)),
+				None => ()
+			};
 
 			channel.execute(server.serve())
 		})

@@ -1,4 +1,5 @@
 pub mod node;
+pub use node::*;
 
 use std::{
 	collections::hash_map::DefaultHasher,
@@ -11,8 +12,8 @@ pub fn calculate_hash(addr: &String) -> u64 {
 	hasher.finish()
 }
 
-pub fn construct_node(addr: &String) -> node::Node {
-	node::Node {
+pub fn construct_node(addr: &String) -> Node {
+	Node {
 		addr: addr.clone(),
 		id: calculate_hash(addr)
 	}
