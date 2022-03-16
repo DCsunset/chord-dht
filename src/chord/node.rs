@@ -6,7 +6,7 @@ use tarpc::{
 	serde::Deserialize,
 	tokio_serde::formats::Bincode
 };
-use futures::{future, executor};
+use futures::{future, executor, TryFutureExt};
 
 
 type Digest = u64;
@@ -92,8 +92,10 @@ impl NodeServer {
 		let n= self.get_connection(&successor).await;
 		let x= match n.get_predecessor_rpc(ctx).await.unwrap() {
 			Some(v) => v,
-			// Empty predecessor (TODO: log)
-			None => return
+			None => {
+				println!("Empty predecessor of successor node: {:?}", successor);
+				return
+			}
 		};
 		n.notify_rpc(ctx, self_node).await.unwrap();
 
@@ -119,14 +121,13 @@ impl NodeServer {
 	// Figure 4: n.find_predecessor
 	async fn find_predecessor(&mut self, id: Digest) -> Node {
 		let mut n = self.node.clone();
-		// TODO: check when its empty
-		let mut succ = self.successor.as_ref().unwrap().clone();
+		let mut succ = self.successor.as_ref().expect("empty succussor").clone();
+
 		while id > n.id && id < succ.id {
 			let node = self.get_connection(&n).await;
 			n = node.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
 			let new_node = self.get_connection(&n).await;
-			// TODO: handle empty
-			succ = new_node.get_successor_rpc(context::current()).await.unwrap().unwrap();
+			succ = new_node.get_successor_rpc(context::current()).await.unwrap().unwrap_or_else(|| panic!("Empty succussor for node {:?}", new_node));
 		}
 		n
 	}
