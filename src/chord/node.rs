@@ -69,12 +69,17 @@ impl NodeServer {
 	}
 	
 	async fn get_connection(&mut self, node: &Node) -> &NodeServiceClient {
+		if node.id == self.node.id {
+			panic!("Node {} connecting to itself", node.id);
+		}
+
 		match self.connection_map.entry(node.id) {
 			Entry::Occupied(c) => c.into_mut(),
 			// connect to the node
 			Entry::Vacant(m) => {
+				info!("Connecting from node {} to node {}", self.node.id, node.id);
 				let c = crate::client::setup_client(&node.addr).await;
-				info!("connected to node: {:?}", node);
+				info!("Connected from node {} to node {}", self.node.id, node.id);
 				m.insert(c)
 			}
 		}
@@ -91,7 +96,13 @@ impl NodeServer {
 	pub async fn stabilize(&mut self) {
 		let ctx = context::current();
 		let successor = match self.successor.as_ref() {
-			Some(s) => s.clone(),
+			Some(s) => {
+				// Skip if the successor is self
+				if s.id == self.node.id {
+					return
+				}
+				s.clone()
+			},
 			None => {
 				warn!("Empty successor");
 				return;
