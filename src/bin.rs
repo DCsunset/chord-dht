@@ -25,6 +25,6 @@ async fn main() -> anyhow::Result<()> {
 	};
 
 	info!("listening at: {}, id: {}", &args.addr, node.id);
-	server::start_server(&node, &join_node).await?;
+	server::start_server(node, join_node).await?;
 	Ok(())
 }

@@ -8,7 +8,7 @@ use tarpc::{
 	server::{Channel, incoming::Incoming}
 };
 
-pub async fn start_server(node: &Node, join_node: &Option<Node>) -> anyhow::Result<()> {
+pub async fn start_server(node: Node, join_node: Option<Node>) -> anyhow::Result<()> {
 	let mut listener = tarpc::serde_transport::tcp::listen(&node.addr, Bincode::default).await?;
 	listener.config_mut().max_frame_length(usize::MAX);
 	listener
