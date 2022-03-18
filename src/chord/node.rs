@@ -30,6 +30,7 @@ pub trait NodeService {
 	async fn find_predecessor_rpc(id: Digest) -> Node;
 	async fn closest_preceding_finger_rpc(id: Digest) -> Node;
 	async fn notify_rpc(node: Node);
+	async fn stabilize_rpc();
 }
 
 #[derive(Clone)]
@@ -91,7 +92,10 @@ impl NodeServer {
 		let ctx = context::current();
 		let successor = match self.successor.as_ref() {
 			Some(s) => s.clone(),
-			None => return
+			None => {
+				warn!("Empty successor");
+				return;
+			}
 		};
 
 		let self_node = self.node.clone();
@@ -100,7 +104,7 @@ impl NodeServer {
 			Some(v) => v,
 			None => {
 				warn!("Empty predecessor of successor node: {:?}", successor);
-				return
+				return;
 			}
 		};
 		n.notify_rpc(ctx, self_node).await.unwrap();
@@ -208,6 +212,13 @@ impl NodeService for NodeServer {
 	fn notify_rpc(mut self, _: context::Context, node: Node) -> Self::NotifyRpcFut {
 		future::ready(
 			executor::block_on(self.notify(node))
+		)
+	}
+
+	type StabilizeRpcFut = future::Ready<()>;
+	fn stabilize_rpc(mut self, _: context::Context) -> Self::StabilizeRpcFut {
+		future::ready(
+			executor::block_on(self.stabilize())
 		)
 	}
 }
