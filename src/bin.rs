@@ -1,6 +1,5 @@
 use chord_rust::{chord, server};
 use clap::Parser;
-use log::info;
 
 #[derive(Parser)]
 struct Args {
@@ -24,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
 		None => None
 	};
 
-	info!("listening at: {}, id: {}", &args.addr, node.id);
+	println!("listening at: {}, id: {}", &args.addr, node.id);
 	server::start_server(node, join_node).await?;
 	Ok(())
 }
