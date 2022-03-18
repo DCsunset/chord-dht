@@ -21,12 +21,15 @@ async fn test_figure_3b() {
 		id: 3
 	};
 
-	start_server(&n0, &None);
+	let s0 = start_server(&n0, &None);
+	tokio::spawn(s0);
 	let c0 = setup_client(&n0.addr).await;
 
-	start_server(&n1, &Some(n0.clone()));
+	let s1 = start_server(&n1, &Some(n0.clone()));
+	tokio::spawn(s1);
 	let c1 = setup_client(&n1.addr).await;
 
-	start_server(&n3, &Some(n1.clone()));
+	let s3 = start_server(&n3, &Some(n1.clone()));
+	tokio::spawn(s3);
 	let c3 = setup_client(&n3.addr).await;
 }
