@@ -16,20 +16,17 @@ pub async fn start_server(node: Node, join_node: Option<Node>) -> anyhow::Result
 	listener
 		.filter_map(|r| future::ready(r.ok()))
 		.map(tarpc::server::BaseChannel::with_defaults)
-		.max_channels_per_key(10, |t| t.transport().peer_addr().unwrap().ip())
-		.map(|channel| {
-			info!("Starting server for node: {:?}", node);
+		.for_each(|channel| async {
+			info!("Starting server for node {}", node.id);
 			let mut server = NodeServer::new(&node);
 			match join_node.as_ref() {
-				Some(n) => executor::block_on(server.join(n)),
+				Some(n) => server.join(n).await,
 				None => ()
 			};
+			info!("Node {} started", node.id);
 
-			channel.execute(server.serve())
+			channel.execute(server.serve()).await;
 		})
-		// Max 20 channels
-    .buffer_unordered(20)
-    .for_each(|_| async {})
     .await;
 	Ok(())
 }
