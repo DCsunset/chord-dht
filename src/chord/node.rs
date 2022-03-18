@@ -7,6 +7,7 @@ use tarpc::{
 	tokio_serde::formats::Bincode
 };
 use futures::{future, executor};
+use log::{info, warn};
 
 
 type Digest = u64;
@@ -74,8 +75,8 @@ impl NodeServer {
 			Entry::Vacant(m) => {
 				let transport = tarpc::serde_transport::tcp::connect(node.addr.clone(),Bincode::default);
 				let c = NodeServiceClient::new(tarpc::client::Config::default(), transport.await.unwrap()).spawn();
+				info!("connected to node: {:?}", node);
 				m.insert(c)
-
 			}
 		}
 	}
@@ -100,7 +101,7 @@ impl NodeServer {
 		let x= match n.get_predecessor_rpc(ctx).await.unwrap() {
 			Some(v) => v,
 			None => {
-				println!("Empty predecessor of successor node: {:?}", successor);
+				warn!("Empty predecessor of successor node: {:?}", successor);
 				return
 			}
 		};

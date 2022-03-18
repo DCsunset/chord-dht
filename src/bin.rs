@@ -1,10 +1,10 @@
 use chord_rust::{chord, server};
 use clap::Parser;
+use log::info;
 
 #[derive(Parser)]
 struct Args {
 	/// Local addr to bind (<host>:<port>)
-	#[clap(short, long)]
 	addr: String,
 
 	/// Join an existing node on init (<host>:<port>)
@@ -15,6 +15,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+	env_logger::init();
 	let args = Args::parse();
 
 	let node = chord::construct_node(&args.addr);
@@ -23,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
 		None => None
 	};
 
-	println!("Current node: {}", node.id);
+	info!("listening at: {}, id: {}", &args.addr, node.id);
 	server::start_server(&node, &join_node).await?;
 	Ok(())
 }
