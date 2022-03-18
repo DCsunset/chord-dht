@@ -3,8 +3,7 @@ use rand::Rng;
 use tarpc::{
 	context,
 	serde::Serialize,
-	serde::Deserialize,
-	tokio_serde::formats::Bincode
+	serde::Deserialize
 };
 use futures::{future, executor};
 use log::{info, warn};
@@ -73,8 +72,7 @@ impl NodeServer {
 			Entry::Occupied(c) => c.into_mut(),
 			// connect to the node
 			Entry::Vacant(m) => {
-				let transport = tarpc::serde_transport::tcp::connect(node.addr.clone(),Bincode::default);
-				let c = NodeServiceClient::new(tarpc::client::Config::default(), transport.await.unwrap()).spawn();
+				let c = crate::client::setup_client(&node.addr).await;
 				info!("connected to node: {:?}", node);
 				m.insert(c)
 			}
