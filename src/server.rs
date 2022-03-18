@@ -12,10 +12,10 @@ pub async fn start_server(node: &Node, join_node: &Option<Node>) -> anyhow::Resu
 	let mut listener = tarpc::serde_transport::tcp::listen(&node.addr, Bincode::default).await?;
 	listener.config_mut().max_frame_length(usize::MAX);
 	listener
-    .filter_map(|r| future::ready(r.ok()))
-    .map(tarpc::server::BaseChannel::with_defaults)
-        .max_channels_per_key(1, |t| t.transport().peer_addr().unwrap().ip())
-    .map(|channel| {
+		.filter_map(|r| future::ready(r.ok()))
+		.map(tarpc::server::BaseChannel::with_defaults)
+		.max_channels_per_key(1, |t| t.transport().peer_addr().unwrap().ip())
+		.map(|channel| {
 			let mut server = NodeServer::new(&node);
 			match join_node.as_ref() {
 				Some(n) => executor::block_on(server.join(n)),
@@ -28,6 +28,5 @@ pub async fn start_server(node: &Node, join_node: &Option<Node>) -> anyhow::Resu
     .buffer_unordered(20)
     .for_each(|_| async {})
     .await;
-
 	Ok(())
 }
