@@ -5,8 +5,7 @@ use tarpc::{
 	serde::Serialize,
 	serde::Deserialize
 };
-use futures::{future, executor};
-use log::{info, warn};
+use log::{info, warn, debug};
 
 
 type Digest = u64;
@@ -87,9 +86,11 @@ impl NodeServer {
 
 	// Figure 7: n.join
 	pub async fn join(&mut self, node: &Node) {
+		debug!("Node {}: joining node {}", self.node.id, node.id);
 		self.predecessor = None;
 		let n = self.get_connection(node).await;
 		self.successor = Some(n.find_successor_rpc(context::current(), node.id).await.unwrap());
+		debug!("Node {}: joined node {}", self.node.id, node.id);
 	}
 
 	// Figure 7: n.stabilize
@@ -99,7 +100,7 @@ impl NodeServer {
 			Some(s) => {
 				// Skip if the successor is self
 				if s.id == self.node.id {
-					return
+					return;
 				}
 				s.clone()
 			},
@@ -134,7 +135,11 @@ impl NodeServer {
 
 	// Figure 4: n.find_successor
 	async fn find_successor(&mut self, id: Digest) -> Node {
+		debug!("Node {}: finding predecessor of {}", self.node.id, id);
 		let n = self.find_predecessor(id).await;
+		if n.id == self.node.id {
+			return self.successor.as_ref().unwrap().clone()
+		}
 		let node = self.get_connection(&n).await;
 		node.get_successor_rpc(context::current()).await.unwrap().unwrap()
 	}
@@ -182,54 +187,57 @@ impl NodeServer {
 
 #[tarpc::server]
 impl NodeService for NodeServer {
-	type GetNodeRpcFut = future::Ready<Node>;
-	fn get_node_rpc(self, _: context::Context) -> Self::GetNodeRpcFut {
-		future::ready(self.node.clone())
+	async fn get_node_rpc(self, _: context::Context) -> Node {
+		debug!("Node {}: get_node_rpc called", self.node.id);
+		let node = self.node.clone();
+		debug!("Node {}: get_node_rpc called", self.node.id);
+		node
 	}
 
-	type GetPredecessorRpcFut = future::Ready<Option<Node>>;
-	fn get_predecessor_rpc(self, _: context::Context) -> Self::GetPredecessorRpcFut {
-		future::ready(self.predecessor.clone())
+	async fn get_predecessor_rpc(self, _: context::Context) -> Option<Node> {
+		debug!("Node {}: get_predecessor_rpc called", self.node.id);
+		let pred = self.predecessor.clone();
+		debug!("Node {}: get_predecessor_rpc finished", self.node.id);
+		pred
 	}
 
-	type GetSuccessorRpcFut = future::Ready<Option<Node>>;
-	fn get_successor_rpc(self, _: context::Context) -> Self::GetPredecessorRpcFut {
-		future::ready(self.successor.clone())
+	async fn get_successor_rpc(self, _: context::Context) -> Option<Node> {
+		debug!("Node {}: get_successor_rpc called", self.node.id);
+		let succ = self.successor.clone();
+		debug!("Node {}: get_successor_rpc finished", self.node.id);
+		succ
 	}
 
-	type FindSuccessorRpcFut = future::Ready<Node>;
-	fn find_successor_rpc(mut self, _: context::Context, id: Digest) -> Self::FindSuccessorRpcFut {
-		future::ready(
-			executor::block_on(self.find_successor(id))
-		)
+	async fn find_successor_rpc(mut self, _: context::Context, id: Digest) -> Node {
+		debug!("Node {}: find_successor_rpc called", self.node.id);
+		let succ = self.find_successor(id).await;
+		debug!("Node {}: find_successor_rpc finished", self.node.id);
+		succ
 	}
 
-	type FindPredecessorRpcFut = future::Ready<Node>;
-	fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> Self::FindPredecessorRpcFut {
-		future::ready(
-			executor::block_on(self.find_predecessor(id))
-		)
+	async fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> Node {
+		debug!("Node {}: find_predecessor_rpc called", self.node.id);
+		let pred = self.find_predecessor(id).await;
+		debug!("Node {}: find_predecessor_rpc finished", self.node.id);
+		pred
 	}
 
-	// Figure 4: n.closest_preceding_finger
-	type ClosestPrecedingFingerRpcFut = future::Ready<Node>;
-	fn closest_preceding_finger_rpc(mut self, _: context::Context, id: Digest) -> Self::ClosestPrecedingFingerRpcFut {
-		future::ready(
-			executor::block_on(self.closest_preceding_finger(id))
-		)
+	async fn closest_preceding_finger_rpc(mut self, _: context::Context, id: Digest) -> Node {
+		debug!("Node {}: closest_preceding_finger_rpc called", self.node.id);
+		let node = self.closest_preceding_finger(id).await;
+		debug!("Node {}: closest_preceding_finger_rpc finished", self.node.id);
+		node
 	}
 
-	type NotifyRpcFut = future::Ready<()>;
-	fn notify_rpc(mut self, _: context::Context, node: Node) -> Self::NotifyRpcFut {
-		future::ready(
-			executor::block_on(self.notify(node))
-		)
+	async fn notify_rpc(mut self, _: context::Context, node: Node) {
+		debug!("Node {}: notify_rpc called", self.node.id);
+		self.notify(node).await;
+		debug!("Node {}: notify_rpc finished", self.node.id);
 	}
 
-	type StabilizeRpcFut = future::Ready<()>;
-	fn stabilize_rpc(mut self, _: context::Context) -> Self::StabilizeRpcFut {
-		future::ready(
-			executor::block_on(self.stabilize())
-		)
+	async fn stabilize_rpc(mut self, _: context::Context) {
+		debug!("Node {}: stabilize_rpc called", self.node.id);
+		self.stabilize().await;
+		debug!("Node {}: stabilize_rpc finished", self.node.id);
 	}
 }
