@@ -1,4 +1,4 @@
-use chord_rust::{chord, server};
+use chord_rust::chord;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
 		None => None
 	};
 
-	println!("listening at: {}, id: {}", &args.addr, node.id);
-	server::start_server(node, join_node).await?;
+	let s = chord::NodeServer::new(&node);
+	s.start(join_node).await?;
 	Ok(())
 }

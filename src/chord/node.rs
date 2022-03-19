@@ -2,9 +2,12 @@ use std::collections::{HashMap, hash_map::Entry};
 use rand::Rng;
 use tarpc::{
 	context,
+	tokio_serde::formats::Bincode,
+	server::Channel,
 	serde::Serialize,
 	serde::Deserialize
 };
+use futures::{future, prelude::*};
 use log::{info, warn, debug};
 use crate::chord::ring::*;
 
@@ -28,6 +31,7 @@ pub trait NodeService {
 	async fn stabilize_rpc();
 }
 
+// TODO: make fields share between different instances
 #[derive(Clone)]
 pub struct NodeServer {
 	node: Node,
@@ -56,6 +60,28 @@ impl NodeServer {
 			finger_table: finger_table,
 			connection_map: HashMap::new()
 		}
+	}
+
+	// Start the server
+	pub async fn start(mut self, join_node: Option<Node>) -> anyhow::Result<()> {
+		if let Some(n) = join_node {
+			self.join(&n).await;
+		}
+
+		let mut listener = tarpc::serde_transport::tcp::listen(&self.node.addr, Bincode::default).await?;
+		info!("Starting node {} at {}", self.node.id, self.node.addr);
+		listener.config_mut().max_frame_length(usize::MAX);
+		listener
+			.filter_map(|r| future::ready(r.ok()))
+			.map(tarpc::server::BaseChannel::with_defaults)
+			.map(|channel| async {
+				// Clone a new server to share the data in Arc
+				channel.execute(self.clone().serve()).await;
+			})
+			.buffer_unordered(10)
+			.for_each(|_| async {})
+			.await;
+		Ok(())
 	}
 
 	// Calculate start field of finger table (see Table 1)
@@ -172,6 +198,7 @@ impl NodeServer {
 			},
 			None => node
 		};
+		debug!("Node {}: new predecessor set in notify: {}", self.node.id, new_pred.id);
 		self.predecessor = Some(new_pred);
 	}
 }
