@@ -16,7 +16,7 @@ pub async fn start_server(node: Node, join_node: Option<Node>) -> anyhow::Result
 	listener
 		.filter_map(|r| future::ready(r.ok()))
 		.map(tarpc::server::BaseChannel::with_defaults)
-		.for_each(|channel| async {
+		.map(|channel| async {
 			info!("Starting server for node {}", node.id);
 			let mut server = NodeServer::new(&node);
 			match join_node.as_ref() {
@@ -27,6 +27,8 @@ pub async fn start_server(node: Node, join_node: Option<Node>) -> anyhow::Result
 
 			channel.execute(server.serve()).await;
 		})
+    .buffer_unordered(10)
+    .for_each(|_| async {})
     .await;
 	Ok(())
 }
