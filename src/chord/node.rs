@@ -1,4 +1,4 @@
-use std::{mem::size_of, collections::{HashMap, hash_map::Entry}};
+use std::collections::{HashMap, hash_map::Entry};
 use rand::Rng;
 use tarpc::{
 	context,
@@ -6,11 +6,7 @@ use tarpc::{
 	serde::Deserialize
 };
 use log::{info, warn, debug};
-
-
-type Digest = u64;
-// number of bits
-const NUM_BITS: usize = size_of::<Digest>() * 8;
+use crate::chord::ring::*;
 
 // Data part of the node
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,7 +111,7 @@ impl NodeServer {
 		};
 		n.notify_rpc(ctx, self_node).await.unwrap();
 
-		if x.id > self.node.id && x.id < succ.id {
+		if in_range(x.id, self.node.id, succ.id) {
 			self.successor = x;
 		}
 	}
@@ -143,7 +139,8 @@ impl NodeServer {
 		let mut n = self.node.clone();
 		let mut succ = self.successor.clone();
 
-		while id > n.id && id < succ.id {
+		// id not in (n, succ]
+		while !(in_range(id, n.id, succ.id) || id == succ.id) {
 			let node = self.get_connection(&n).await;
 			n = node.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
 			let new_node = self.get_connection(&n).await;
@@ -156,7 +153,7 @@ impl NodeServer {
 	async fn closest_preceding_finger(&mut self, id: Digest) -> Node {
 		for i in (0..NUM_BITS).rev() {
 			match self.finger_table[i].as_ref() {
-				Some(n) => if n.id > id && n.id < self.node.id {
+				Some(n) => if in_range(n.id, id, self.node.id) {
 					return n.clone();
 				},
 				None => ()
@@ -168,10 +165,10 @@ impl NodeServer {
 	// Figure 7: n.notify
 	async fn notify(&mut self, node: Node) {
 		let new_pred = match self.predecessor.as_ref() {
-			Some(v) => if node.id > v.id && node.id < self.node.id {
+			Some(pred) => if in_range(node.id, pred.id, self.node.id) {
 				node
 			} else {
-				v.clone()
+				pred.clone()
 			},
 			None => node
 		};
