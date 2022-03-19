@@ -30,19 +30,19 @@ async fn test_figure_3b() {
 	c0.stabilize_rpc(context::current()).await.unwrap();
 	// single-node ring
 	assert_eq!(c0.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 0);
-	assert_eq!(c0.get_successor_rpc(context::current()).await.unwrap().unwrap().id, 0);
+	assert_eq!(c0.get_successor_rpc(context::current()).await.unwrap().id, 0);
 
 	let s1 = start_server(n1.clone(), Some(n0.clone()));
 	tokio::spawn(s1);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	let c1 = setup_client(&n1.addr).await;
+	assert_eq!(c1.get_successor_rpc(context::current()).await.unwrap().id, 0);
 	c0.stabilize_rpc(context::current()).await.unwrap();
 	c1.stabilize_rpc(context::current()).await.unwrap();
 
 	assert_eq!(c1.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 0);
-	assert_eq!(c1.get_successor_rpc(context::current()).await.unwrap().unwrap().id, 0);
 	assert_eq!(c0.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 1);
-	assert_eq!(c0.get_successor_rpc(context::current()).await.unwrap().unwrap().id, 1);
+	assert_eq!(c0.get_successor_rpc(context::current()).await.unwrap().id, 1);
 
 
 	// let s3 = start_server(n3.clone(), Some(n1.clone()));

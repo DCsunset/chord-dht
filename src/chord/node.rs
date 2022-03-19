@@ -23,7 +23,7 @@ pub struct Node {
 pub trait NodeService {
 	async fn get_node_rpc() -> Node;
 	async fn get_predecessor_rpc() -> Option<Node>;
-	async fn get_successor_rpc() -> Option<Node>;
+	async fn get_successor_rpc() -> Node;
 
 	async fn find_successor_rpc(id: Digest) -> Node;
 	async fn find_predecessor_rpc(id: Digest) -> Node;
@@ -35,7 +35,8 @@ pub trait NodeService {
 #[derive(Clone)]
 pub struct NodeServer {
 	node: Node,
-	successor: Option<Node>,
+	// Successor is never None (for correctness)
+	successor: Node,
 	predecessor: Option<Node>,
 	finger_table: [Option<Node>; NUM_BITS as usize],
 	// connection to remote nodes
@@ -54,7 +55,7 @@ impl NodeServer {
 
 		NodeServer {
 			node: node.clone(),
-			successor: Some(node.clone()),
+			successor: node.clone(),
 			predecessor: Some(node.clone()),
 			finger_table: finger_table,
 			connection_map: HashMap::new()
@@ -89,40 +90,33 @@ impl NodeServer {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
 		self.predecessor = None;
 		let n = self.get_connection(node).await;
-		self.successor = Some(n.find_successor_rpc(context::current(), node.id).await.unwrap());
+		self.successor = n.find_successor_rpc(context::current(), node.id).await.unwrap();
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 	}
 
 	// Figure 7: n.stabilize
 	pub async fn stabilize(&mut self) {
 		let ctx = context::current();
-		let successor = match self.successor.as_ref() {
-			Some(s) => {
-				// Skip if the successor is self
-				if s.id == self.node.id {
-					return;
-				}
-				s.clone()
-			},
-			None => {
-				warn!("Empty successor");
-				return;
-			}
-		};
+		let succ = self.successor.clone();
+
+		// Skip if the successor is self
+		if succ.id == self.node.id {
+			return;
+		}
 
 		let self_node = self.node.clone();
-		let n= self.get_connection(&successor).await;
+		let n= self.get_connection(&succ).await;
 		let x= match n.get_predecessor_rpc(ctx).await.unwrap() {
 			Some(v) => v,
 			None => {
-				warn!("Empty predecessor of successor node: {:?}", successor);
+				warn!("Empty predecessor of successor node: {:?}", succ);
 				return;
 			}
 		};
 		n.notify_rpc(ctx, self_node).await.unwrap();
 
-		if x.id > self.node.id && x.id < successor.id {
-			self.successor = Some(x);
+		if x.id > self.node.id && x.id < succ.id {
+			self.successor = x;
 		}
 	}
 
@@ -138,22 +132,22 @@ impl NodeServer {
 		debug!("Node {}: finding predecessor of {}", self.node.id, id);
 		let n = self.find_predecessor(id).await;
 		if n.id == self.node.id {
-			return self.successor.as_ref().unwrap().clone()
+			return self.successor.clone()
 		}
 		let node = self.get_connection(&n).await;
-		node.get_successor_rpc(context::current()).await.unwrap().unwrap()
+		node.get_successor_rpc(context::current()).await.unwrap()
 	}
 
 	// Figure 4: n.find_predecessor
 	async fn find_predecessor(&mut self, id: Digest) -> Node {
 		let mut n = self.node.clone();
-		let mut succ = self.successor.as_ref().expect("empty succussor").clone();
+		let mut succ = self.successor.clone();
 
 		while id > n.id && id < succ.id {
 			let node = self.get_connection(&n).await;
 			n = node.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
 			let new_node = self.get_connection(&n).await;
-			succ = new_node.get_successor_rpc(context::current()).await.unwrap().unwrap_or_else(|| panic!("Empty succussor for node {:?}", new_node));
+			succ = new_node.get_successor_rpc(context::current()).await.unwrap();
 		}
 		n
 	}
@@ -201,7 +195,7 @@ impl NodeService for NodeServer {
 		pred
 	}
 
-	async fn get_successor_rpc(self, _: context::Context) -> Option<Node> {
+	async fn get_successor_rpc(self, _: context::Context) -> Node {
 		debug!("Node {}: get_successor_rpc called", self.node.id);
 		let succ = self.successor.clone();
 		debug!("Node {}: get_successor_rpc finished", self.node.id);
