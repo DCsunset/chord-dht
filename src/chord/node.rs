@@ -1,4 +1,7 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+	collections::{HashMap},
+	sync::{Arc, RwLock}
+};
 use rand::Rng;
 use tarpc::{
 	context,
@@ -36,11 +39,11 @@ pub trait NodeService {
 pub struct NodeServer {
 	node: Node,
 	// Successor is never None (for correctness)
-	successor: Node,
-	predecessor: Option<Node>,
-	finger_table: [Option<Node>; NUM_BITS as usize],
+	successor: Arc<RwLock<Node>>,
+	predecessor: Arc<RwLock<Option<Node>>>,
+	finger_table: Arc<RwLock<[Option<Node>; NUM_BITS as usize]>>,
 	// connection to remote nodes
-	connection_map: HashMap<Digest, NodeServiceClient>
+	connection_map: Arc<RwLock<HashMap<Digest, NodeServiceClient>>>
 }
 
 impl NodeServer {
@@ -55,10 +58,10 @@ impl NodeServer {
 
 		NodeServer {
 			node: node.clone(),
-			successor: node.clone(),
-			predecessor: Some(node.clone()),
-			finger_table: finger_table,
-			connection_map: HashMap::new()
+			successor: Arc::new(RwLock::new(node.clone())),
+			predecessor: Arc::new(RwLock::new(Some(node.clone()))),
+			finger_table: Arc::new(RwLock::new(finger_table)),
+			connection_map: Arc::new(RwLock::new(HashMap::new()))
 		}
 	}
 
@@ -90,36 +93,42 @@ impl NodeServer {
 		(self.node.id + (1 << k)) % (NUM_BITS as u64)
 	}
 	
-	async fn get_connection(&mut self, node: &Node) -> &NodeServiceClient {
+	async fn get_connection(&mut self, node: &Node) -> NodeServiceClient {
 		if node.id == self.node.id {
 			panic!("Node {} connecting to itself", node.id);
 		}
 
-		match self.connection_map.entry(node.id) {
-			Entry::Occupied(c) => c.into_mut(),
-			// connect to the node
-			Entry::Vacant(m) => {
-				info!("Connecting from node {} to node {}", self.node.id, node.id);
-				let c = crate::client::setup_client(&node.addr).await;
-				info!("Connected from node {} to node {}", self.node.id, node.id);
-				m.insert(c)
+		// Use block to drop map immediately after use
+		{
+			let map = self.connection_map.read().unwrap();
+			if let Some(c) = map.get(&node.id) {
+				// client can be cloned with lost cost
+				return c.clone();
 			}
+		}
+		{
+			info!("Connecting from node {} to node {}", self.node.id, node.id);
+			let c = crate::client::setup_client(&node.addr).await;
+			info!("Connected from node {} to node {}", self.node.id, node.id);
+			let mut map = self.connection_map.write().unwrap();
+			map.insert(node.id, c.clone());
+			return c;
 		}
 	}
 
 	// Figure 7: n.join
 	pub async fn join(&mut self, node: &Node) {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
-		self.predecessor = None;
+		*self.predecessor.write().unwrap() = None;
 		let n = self.get_connection(node).await;
-		self.successor = n.find_successor_rpc(context::current(), node.id).await.unwrap();
+		*self.successor.write().unwrap() = n.find_successor_rpc(context::current(), node.id).await.unwrap();
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 	}
 
 	// Figure 7: n.stabilize
 	pub async fn stabilize(&mut self) {
 		let ctx = context::current();
-		let succ = self.successor.clone();
+		let succ = self.successor.read().unwrap().clone();
 
 		// Skip if the successor is self
 		if succ.id == self.node.id {
@@ -138,7 +147,7 @@ impl NodeServer {
 		n.notify_rpc(ctx, self_node).await.unwrap();
 
 		if in_range(x.id, self.node.id, succ.id) {
-			self.successor = x;
+			*self.successor.write().unwrap() = x;
 		}
 	}
 
@@ -146,7 +155,9 @@ impl NodeServer {
 	pub async fn fix_fingers(&mut self) {
 		let mut rng = rand::thread_rng();
 		let i = rng.gen_range(1..NUM_BITS);
-		self.finger_table[i] = Some(self.find_successor(self.finger_table_start(i)).await);
+		let succ = self.find_successor(self.finger_table_start(i)).await;
+		let mut table = self.finger_table.write().unwrap();
+		table[i] = Some(succ);
 	}
 
 	// Figure 4: n.find_successor
@@ -154,7 +165,7 @@ impl NodeServer {
 		debug!("Node {}: finding predecessor of {}", self.node.id, id);
 		let n = self.find_predecessor(id).await;
 		if n.id == self.node.id {
-			return self.successor.clone()
+			return self.successor.read().unwrap().clone()
 		}
 		let node = self.get_connection(&n).await;
 		node.get_successor_rpc(context::current()).await.unwrap()
@@ -163,7 +174,7 @@ impl NodeServer {
 	// Figure 4: n.find_predecessor
 	async fn find_predecessor(&mut self, id: Digest) -> Node {
 		let mut n = self.node.clone();
-		let mut succ = self.successor.clone();
+		let mut succ = self.successor.read().unwrap().clone();
 
 		// id not in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
@@ -177,8 +188,9 @@ impl NodeServer {
 
 	// Figure 4: n.closest_preceding_finger
 	async fn closest_preceding_finger(&mut self, id: Digest) -> Node {
+		let table = self.finger_table.read().unwrap();
 		for i in (0..NUM_BITS).rev() {
-			match self.finger_table[i].as_ref() {
+			match table[i].as_ref() {
 				Some(n) => if in_range(n.id, id, self.node.id) {
 					return n.clone();
 				},
@@ -190,16 +202,17 @@ impl NodeServer {
 
 	// Figure 7: n.notify
 	async fn notify(&mut self, node: Node) {
-		let new_pred = match self.predecessor.as_ref() {
-			Some(pred) => if in_range(node.id, pred.id, self.node.id) {
+		let mut pred = self.predecessor.write().unwrap();
+		let new_pred = match pred.as_ref() {
+			Some(p) => if in_range(node.id, p.id, self.node.id) {
 				node
 			} else {
-				pred.clone()
+				p.clone()
 			},
 			None => node
 		};
 		debug!("Node {}: new predecessor set in notify: {}", self.node.id, new_pred.id);
-		self.predecessor = Some(new_pred);
+		*pred = Some(new_pred);
 	}
 }
 
@@ -214,14 +227,14 @@ impl NodeService for NodeServer {
 
 	async fn get_predecessor_rpc(self, _: context::Context) -> Option<Node> {
 		debug!("Node {}: get_predecessor_rpc called", self.node.id);
-		let pred = self.predecessor.clone();
+		let pred = self.predecessor.read().unwrap().clone();
 		debug!("Node {}: get_predecessor_rpc finished", self.node.id);
 		pred
 	}
 
 	async fn get_successor_rpc(self, _: context::Context) -> Node {
 		debug!("Node {}: get_successor_rpc called", self.node.id);
-		let succ = self.successor.clone();
+		let succ = self.successor.read().unwrap().clone();
 		debug!("Node {}: get_successor_rpc finished", self.node.id);
 		succ
 	}
