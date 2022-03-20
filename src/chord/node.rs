@@ -160,7 +160,7 @@ impl NodeServer {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
 		*self.predecessor.write().unwrap() = None;
 		let n = self.get_connection(node).await;
-		*self.successor.write().unwrap() = n.find_successor_rpc(context::current(), node.id).await.unwrap();
+		*self.successor.write().unwrap() = n.find_successor_rpc(context::current(), self.node.id).await.unwrap();
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 	}
 
@@ -198,7 +198,7 @@ impl NodeServer {
 
 	// Figure 4: n.find_successor
 	async fn find_successor(&mut self, id: Digest) -> Node {
-		debug!("Node {}: finding predecessor of {}", self.node.id, id);
+		debug!("Node {}: find_successor({})", self.node.id, id);
 		let n = self.find_predecessor(id).await;
 		if n.id == self.node.id {
 			return self.successor.read().unwrap().clone()
@@ -209,11 +209,13 @@ impl NodeServer {
 
 	// Figure 4: n.find_predecessor
 	async fn find_predecessor(&mut self, id: Digest) -> Node {
+		debug!("Node {}: find_predecessor({})", self.node.id, id);
 		let mut n = self.node.clone();
 		let mut succ = self.successor.read().unwrap().clone();
 
 		// stop when id in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
+			debug!("Node {}: find_predecessor range ({}, {}]", self.node.id, n.id, succ.id);
 			let node = self.get_connection(&n).await;
 			n = node.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
 			let new_node = self.get_connection(&n).await;
