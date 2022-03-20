@@ -94,10 +94,6 @@ impl NodeServer {
 	}
 	
 	async fn get_connection(&mut self, node: &Node) -> NodeServiceClient {
-		if node.id == self.node.id {
-			panic!("Node {} connecting to itself", node.id);
-		}
-
 		// Use block to drop map immediately after use
 		{
 			let map = self.connection_map.read().unwrap();
@@ -130,13 +126,8 @@ impl NodeServer {
 		let ctx = context::current();
 		let succ = self.successor.read().unwrap().clone();
 
-		// Skip if the successor is self
-		if succ.id == self.node.id {
-			return;
-		}
-
 		let self_node = self.node.clone();
-		let n= self.get_connection(&succ).await;
+		let n = self.get_connection(&succ).await;
 		let x= match n.get_predecessor_rpc(ctx).await.unwrap() {
 			Some(v) => v,
 			None => {
