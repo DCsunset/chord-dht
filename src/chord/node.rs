@@ -2,7 +2,7 @@ use std::{
 	collections::{HashMap},
 	sync::{Arc, RwLock}
 };
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use tarpc::{
 	context,
 	tokio_serde::formats::Bincode,
@@ -66,25 +66,59 @@ impl NodeServer {
 	}
 
 	// Start the server
-	pub async fn start(mut self, join_node: Option<Node>) -> anyhow::Result<()> {
+	pub async fn start(&mut self, join_node: Option<Node>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
 		if let Some(n) = join_node {
 			self.join(&n).await;
 		}
 
 		let mut listener = tarpc::serde_transport::tcp::listen(&self.node.addr, Bincode::default).await?;
-		info!("Starting node {} at {}", self.node.id, self.node.addr);
-		listener.config_mut().max_frame_length(usize::MAX);
-		listener
-			.filter_map(|r| future::ready(r.ok()))
-			.map(tarpc::server::BaseChannel::with_defaults)
-			.map(|channel| async {
-				// Clone a new server to share the data in Arc
-				channel.execute(self.clone().serve()).await;
-			})
-			.buffer_unordered(10)
-			.for_each(|_| async {})
-			.await;
-		Ok(())
+		let server = self.clone();
+		// Listen for rpc call
+		let handle = tokio::spawn(async move {
+			listener.config_mut().max_frame_length(usize::MAX);
+			listener
+				.filter_map(|r| future::ready(r.ok()))
+				.map(tarpc::server::BaseChannel::with_defaults)
+				.map(|channel| async {
+					// Clone a new server to share the data in Arc
+					channel.execute(server.clone().serve()).await;
+				})
+				.buffer_unordered(10)
+				.for_each(|_| async {})
+				.await;
+		});
+
+		// Periodically stabilize
+		let mut server = self.clone();
+		tokio::spawn(async move {
+			let mut interval = tokio::time::interval(
+				chrono::Duration::milliseconds(30).to_std().unwrap()
+			);
+			// let mut s= server.clone();
+			loop {
+				interval.tick().await;
+				server.stabilize().await;
+			}
+		});
+
+		// Periodically refresh finger table
+		let mut server = self.clone();
+		tokio::spawn(async move {
+			let mut interval = tokio::time::interval(
+				chrono::Duration::milliseconds(30).to_std().unwrap()
+			);
+			// StdRng can be sent across threads
+			let mut rng = rand::prelude::StdRng::from_entropy();
+			// let mut s= server.clone();
+			loop {
+				interval.tick().await;
+				let index = rng.gen_range(1..NUM_BITS);
+				server.fix_fingers(index).await;
+			}
+		});
+
+		info!("Node {} listening at {}", self.node.id, self.node.addr);
+		Ok(handle)
 	}
 
 	// Calculate start field of finger table (see Table 1)
@@ -147,12 +181,10 @@ impl NodeServer {
 	}
 
 	// Figure 7: n.fix_fingers
-	pub async fn fix_fingers(&mut self) {
-		let mut rng = rand::thread_rng();
-		let i = rng.gen_range(1..NUM_BITS);
-		let succ = self.find_successor(self.finger_table_start(i)).await;
+	pub async fn fix_fingers(&mut self, index: usize) {
+		let succ = self.find_successor(self.finger_table_start(index)).await;
 		let mut table = self.finger_table.write().unwrap();
-		table[i] = Some(succ);
+		table[index] = Some(succ);
 	}
 
 	// Figure 4: n.find_successor
@@ -171,7 +203,7 @@ impl NodeServer {
 		let mut n = self.node.clone();
 		let mut succ = self.successor.read().unwrap().clone();
 
-		// id not in (n, succ]
+		// stop when id in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
 			let node = self.get_connection(&n).await;
 			n = node.closest_preceding_finger_rpc(context::current(), id).await.unwrap();

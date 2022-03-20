@@ -23,7 +23,8 @@ async fn main() -> anyhow::Result<()> {
 		None => None
 	};
 
-	let s = chord::NodeServer::new(&node);
-	s.start(join_node).await?;
+	let mut s = chord::NodeServer::new(&node);
+	let handle = s.start(join_node).await?;
+	handle.await?;
 	Ok(())
 }
