@@ -124,22 +124,26 @@ impl NodeServer {
 	// Figure 7: n.stabilize
 	pub async fn stabilize(&mut self) {
 		let ctx = context::current();
-		let succ = self.successor.read().unwrap().clone();
+		let mut succ = self.successor.read().unwrap().clone();
 
 		let self_node = self.node.clone();
 		let n = self.get_connection(&succ).await;
 		let x= match n.get_predecessor_rpc(ctx).await.unwrap() {
 			Some(v) => v,
 			None => {
-				warn!("Empty predecessor of successor node: {:?}", succ);
+				warn!("Node {}: empty predecessor of successor node: {}", self_node.id, succ.id);
 				return;
 			}
 		};
-		n.notify_rpc(ctx, self_node).await.unwrap();
-
 		if in_range(x.id, self.node.id, succ.id) {
-			*self.successor.write().unwrap() = x;
+			*self.successor.write().unwrap() = x.clone();
+			// update succ
+			succ = x;
 		}
+
+		// update connection because succ may change here
+		let n = self.get_connection(&succ).await;
+		n.notify_rpc(ctx, self_node).await.unwrap();
 	}
 
 	// Figure 7: n.fix_fingers
