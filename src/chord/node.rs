@@ -12,7 +12,10 @@ use tarpc::{
 };
 use futures::{future, prelude::*};
 use log::{info, warn, debug};
-use crate::chord::ring::*;
+use crate::chord::{
+	ring::*,
+	config::*
+};
 
 // Data part of the node
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,8 +69,8 @@ impl NodeServer {
 	}
 
 	// Start the server
-	pub async fn start(&mut self, join_node: Option<Node>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
-		if let Some(n) = join_node {
+	pub async fn start(&mut self, config: &Config) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+		if let Some(n) = config.join_node.as_ref() {
 			self.join(&n).await;
 		}
 
@@ -90,32 +93,38 @@ impl NodeServer {
 
 		// Periodically stabilize
 		let mut server = self.clone();
-		tokio::spawn(async move {
-			let mut interval = tokio::time::interval(
-				chrono::Duration::milliseconds(30).to_std().unwrap()
-			);
-			// let mut s= server.clone();
-			loop {
-				interval.tick().await;
-				server.stabilize().await;
-			}
-		});
+		let stabilize_interval = config.fix_finger_interval;
+		if stabilize_interval > 0 {
+			tokio::spawn(async move {
+				let mut interval = tokio::time::interval(
+					chrono::Duration::milliseconds(stabilize_interval.into()).to_std().unwrap()
+				);
+				// let mut s= server.clone();
+				loop {
+					interval.tick().await;
+					server.stabilize().await;
+				}
+			});
+		}
 
 		// Periodically refresh finger table
 		let mut server = self.clone();
-		tokio::spawn(async move {
-			let mut interval = tokio::time::interval(
-				chrono::Duration::milliseconds(30).to_std().unwrap()
-			);
-			// StdRng can be sent across threads
-			let mut rng = rand::prelude::StdRng::from_entropy();
-			// let mut s= server.clone();
-			loop {
-				interval.tick().await;
-				let index = rng.gen_range(1..NUM_BITS);
-				server.fix_fingers(index).await;
-			}
-		});
+		let fix_finger_interval = config.fix_finger_interval;
+		if fix_finger_interval > 0 {
+			tokio::spawn(async move {
+				let mut interval = tokio::time::interval(
+					chrono::Duration::milliseconds(fix_finger_interval.into()).to_std().unwrap()
+				);
+				// StdRng can be sent across threads
+				let mut rng = rand::prelude::StdRng::from_entropy();
+				// let mut s= server.clone();
+				loop {
+					interval.tick().await;
+					let index = rng.gen_range(1..NUM_BITS);
+					server.fix_fingers(index).await;
+				}
+			});
+		}
 
 		info!("Node {} listening at {}", self.node.id, self.node.addr);
 		Ok(handle)

@@ -1,7 +1,9 @@
 pub mod node;
 pub mod ring;
+pub mod config;
 
 pub use node::*;
+pub use config::*;
 
 use std::{
 	collections::hash_map::DefaultHasher,
