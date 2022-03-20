@@ -2,6 +2,7 @@
 use chord_rust::{chord::{Node, NodeServer, Config}, client::setup_client};
 use tarpc::context;
 
+/// Test figure 3b without fixing finger_table
 #[tokio::test]
 async fn test_figure_3b() -> anyhow::Result<()> {
 	env_logger::init();
@@ -49,8 +50,10 @@ async fn test_figure_3b() -> anyhow::Result<()> {
 	c1.stabilize_rpc(context::current()).await.unwrap();
 	assert_eq!(c0.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 1);
 	c0.stabilize_rpc(context::current()).await.unwrap();
+	assert_eq!(c0.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 1);
 	assert_eq!(c0.get_successor_rpc(context::current()).await.unwrap().id, 1);
 	assert_eq!(c1.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 0);
+	assert_eq!(c1.get_successor_rpc(context::current()).await.unwrap().id, 0);
 
 
 	// Node 3 joins node 1
@@ -58,13 +61,13 @@ async fn test_figure_3b() -> anyhow::Result<()> {
 	config.join_node = Some(n1.clone());
 	s3.start(&config).await?;
 	let c3 = setup_client(&n3.addr).await;
-	c0.stabilize_rpc(context::current()).await.unwrap();
-	c1.stabilize_rpc(context::current()).await.unwrap();
 	c3.stabilize_rpc(context::current()).await.unwrap();
+	c1.stabilize_rpc(context::current()).await.unwrap();
+	c0.stabilize_rpc(context::current()).await.unwrap();
 
-	// assert_eq!(c3.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 1);
-	// assert_eq!(c1.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 0);
-	// assert_eq!(c0.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 3);
+	assert_eq!(c3.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 1);
+	assert_eq!(c1.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 0);
+	assert_eq!(c0.get_predecessor_rpc(context::current()).await.unwrap().unwrap().id, 3);
 
 	Ok(())
 }
