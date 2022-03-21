@@ -1,4 +1,4 @@
-use crate::chord::Node;
+use super::Node;
 use std::default::Default;
 
 pub struct Config {
