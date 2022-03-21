@@ -97,7 +97,7 @@ impl NodeServer {
 
 		// Periodically stabilize
 		let mut server = self.clone();
-		let stabilize_interval = config.fix_finger_interval;
+		let stabilize_interval = config.stabilize_interval;
 		if stabilize_interval > 0 {
 			tokio::spawn(async move {
 				let mut interval = tokio::time::interval(
