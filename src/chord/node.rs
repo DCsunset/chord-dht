@@ -41,27 +41,35 @@ pub trait NodeService {
 #[derive(Clone)]
 pub struct NodeServer {
 	node: Node,
-	// Successor is never None (for correctness)
-	successor: Arc<RwLock<Node>>,
 	predecessor: Arc<RwLock<Option<Node>>>,
+	// The first entry is successor
 	finger_table: Arc<RwLock<Vec<Node>>>,
 	// connection to remote nodes
 	connection_map: Arc<RwLock<HashMap<Digest, NodeServiceClient>>>
 }
 
 impl NodeServer {
-	pub fn new(node: &Node) -> NodeServer {
+	pub fn new(node: &Node) -> Self {
 		// init a ring with only one node
 		// (see second part of n.join in Figure 6)
 		let finger_table = vec![node.clone(); NUM_BITS];
 
 		NodeServer {
 			node: node.clone(),
-			successor: Arc::new(RwLock::new(node.clone())),
 			predecessor: Arc::new(RwLock::new(Some(node.clone()))),
 			finger_table: Arc::new(RwLock::new(finger_table)),
 			connection_map: Arc::new(RwLock::new(HashMap::new()))
 		}
+	}
+
+	pub fn get_successor(&self) -> Node {
+		let table = self.finger_table.read().unwrap();
+		table[0].clone()
+	}
+
+	pub fn set_successor(&mut self, node: Node) {
+		let mut table = self.finger_table.write().unwrap();
+		table[0] = node;
 	}
 
 	// Start the server
@@ -156,14 +164,15 @@ impl NodeServer {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
 		*self.predecessor.write().unwrap() = None;
 		let n = self.get_connection(node).await;
-		*self.successor.write().unwrap() = n.find_successor_rpc(context::current(), self.node.id).await.unwrap();
+		let succ = n.find_successor_rpc(context::current(), self.node.id).await.unwrap();
+		self.set_successor(succ);
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 	}
 
 	// Figure 7: n.stabilize
 	pub async fn stabilize(&mut self) {
 		let ctx = context::current();
-		let mut succ = self.successor.read().unwrap().clone();
+		let mut succ = self.get_successor();
 
 		let self_node = self.node.clone();
 		let n = self.get_connection(&succ).await;
@@ -175,7 +184,7 @@ impl NodeServer {
 			}
 		};
 		if in_range(x.id, self.node.id, succ.id) {
-			*self.successor.write().unwrap() = x.clone();
+			self.set_successor(x.clone());
 			// update succ
 			succ = x;
 		}
@@ -197,7 +206,7 @@ impl NodeServer {
 		debug!("Node {}: find_successor({})", self.node.id, id);
 		let n = self.find_predecessor(id).await;
 		if n.id == self.node.id {
-			return self.successor.read().unwrap().clone()
+			return self.get_successor();
 		}
 		let node = self.get_connection(&n).await;
 		node.get_successor_rpc(context::current()).await.unwrap()
@@ -207,7 +216,7 @@ impl NodeServer {
 	async fn find_predecessor(&mut self, id: Digest) -> Node {
 		debug!("Node {}: find_predecessor({})", self.node.id, id);
 		let mut n = self.node.clone();
-		let mut succ = self.successor.read().unwrap().clone();
+		let mut succ = self.get_successor();
 
 		// stop when id in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
@@ -266,7 +275,7 @@ impl NodeService for NodeServer {
 
 	async fn get_successor_rpc(self, _: context::Context) -> Node {
 		debug!("Node {}: get_successor_rpc called", self.node.id);
-		let succ = self.successor.read().unwrap().clone();
+		let succ = self.get_successor();
 		debug!("Node {}: get_successor_rpc finished", self.node.id);
 		succ
 	}
