@@ -44,7 +44,7 @@ pub struct NodeServer {
 	// Successor is never None (for correctness)
 	successor: Arc<RwLock<Node>>,
 	predecessor: Arc<RwLock<Option<Node>>>,
-	finger_table: Arc<RwLock<[Option<Node>; NUM_BITS as usize]>>,
+	finger_table: Arc<RwLock<Vec<Node>>>,
 	// connection to remote nodes
 	connection_map: Arc<RwLock<HashMap<Digest, NodeServiceClient>>>
 }
@@ -53,11 +53,7 @@ impl NodeServer {
 	pub fn new(node: &Node) -> NodeServer {
 		// init a ring with only one node
 		// (see second part of n.join in Figure 6)
-		const INIT_FINGER: Option<Node> = None;
-		let mut finger_table = [INIT_FINGER; NUM_BITS];
-		for i in 0..NUM_BITS {
-			finger_table[i] = Some(node.clone());
-		}
+		let finger_table = vec![node.clone(); NUM_BITS];
 
 		NodeServer {
 			node: node.clone(),
@@ -193,7 +189,7 @@ impl NodeServer {
 	pub async fn fix_fingers(&mut self, index: usize) {
 		let succ = self.find_successor(self.finger_table_start(index)).await;
 		let mut table = self.finger_table.write().unwrap();
-		table[index] = Some(succ);
+		table[index] = succ;
 	}
 
 	// Figure 4: n.find_successor
@@ -228,11 +224,9 @@ impl NodeServer {
 	async fn closest_preceding_finger(&mut self, id: Digest) -> Node {
 		let table = self.finger_table.read().unwrap();
 		for i in (0..NUM_BITS).rev() {
-			match table[i].as_ref() {
-				Some(n) => if in_range(n.id, id, self.node.id) {
-					return n.clone();
-				},
-				None => ()
+			let n = &table[i];
+			if in_range(n.id, id, self.node.id) {
+				return n.clone();
 			};
 		}
 		self.node.clone()
