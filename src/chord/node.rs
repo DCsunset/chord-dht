@@ -132,7 +132,7 @@ impl NodeServer {
 				loop {
 					interval.tick().await;
 					let index = rng.gen_range(1..NUM_BITS);
-					server.fix_fingers(index).await;
+					server.fix_finger(index).await;
 				}
 			});
 		}
@@ -202,7 +202,7 @@ impl NodeServer {
 	}
 
 	// Figure 7: n.fix_fingers
-	pub async fn fix_fingers(&mut self, index: usize) {
+	pub async fn fix_finger(&mut self, index: usize) {
 		let succ = self.find_successor(self.finger_table_start(index)).await;
 		let mut table = self.finger_table.write().unwrap();
 		table[index] = succ;
@@ -212,11 +212,10 @@ impl NodeServer {
 	async fn find_successor(&mut self, id: Digest) -> Node {
 		debug!("Node {}: find_successor({})", self.node.id, id);
 		let n = self.find_predecessor(id).await;
-		if n.id == self.node.id {
-			return self.get_successor();
-		}
-		let node = self.get_connection(&n).await;
-		node.get_successor_rpc(context::current()).await.unwrap()
+		let c = self.get_connection(&n).await;
+		let succ = c.get_successor_rpc(context::current()).await.unwrap();
+		debug!("Node {}: find_successor({}) returns {}", self.node.id, id, succ.id);
+		succ
 	}
 
 	// Figure 4: n.find_predecessor
@@ -233,6 +232,7 @@ impl NodeServer {
 			conn = self.get_connection(&n).await;
 			succ = conn.get_successor_rpc(context::current()).await.unwrap();
 		}
+		debug!("Node {}: find_predecessor({}) returns {}", self.node.id, id, n.id);
 		n
 	}
 
@@ -240,9 +240,9 @@ impl NodeServer {
 	async fn closest_preceding_finger(&mut self, id: Digest) -> Node {
 		let table = self.finger_table.read().unwrap();
 		for i in (0..NUM_BITS).rev() {
-			let n = &table[i];
-			if in_range(n.id, id, self.node.id) {
-				return n.clone();
+			let f = &table[i];
+			if in_range(f.id, self.node.id, id) {
+				return f.clone();
 			};
 		}
 		self.node.clone()
@@ -324,6 +324,12 @@ impl NodeService for NodeServer {
 mod tests {
 	use super::*;
 
+	async fn fix_all_fingers(server: &mut NodeServer) {
+		for i in 1..NUM_BITS {
+			server.fix_finger(i).await;
+		}
+	}
+
 	/// Test figure 3b, 5a
 	#[tokio::test]
 	async fn test_node_metadata() -> anyhow::Result<()> {
@@ -378,6 +384,19 @@ mod tests {
 		assert_eq!(s0.get_successor().id, 1);
 		assert_eq!(s1.get_predecessor().unwrap().id, 0);
 		assert_eq!(s1.get_successor().id, 0);
+		
+		// Fix fingers
+		fix_all_fingers(&mut s0).await;
+		{
+			let table = s0.finger_table.read().unwrap();
+			assert_eq!(table[1].id, 0);
+		}
+		fix_all_fingers(&mut s1).await;
+		{
+			let table = s1.finger_table.read().unwrap();
+			assert_eq!(table[1].id, 0);
+			assert_eq!(table[2].id, 0);
+		}
 
 
 		// Node 3 joins node 1
@@ -392,6 +411,30 @@ mod tests {
 		assert_eq!(s1.get_predecessor().unwrap().id, 0);
 		assert_eq!(s0.get_predecessor().unwrap().id, 3);
 
+		// See finger table in Figure 3b
+		fix_all_fingers(&mut s0).await;
+		{
+			let table = s0.finger_table.read().unwrap();
+			assert_eq!(table[0].id, 1);
+			assert_eq!(table[1].id, 3);
+			assert_eq!(table[2].id, 0);
+		}
+		fix_all_fingers(&mut s1).await;
+		{
+			let table = s1.finger_table.read().unwrap();
+			assert_eq!(table[0].id, 3);
+			assert_eq!(table[1].id, 3);
+			assert_eq!(table[2].id, 0);
+		}
+		fix_all_fingers(&mut s3).await;
+		{
+			let table = s3.finger_table.read().unwrap();
+			assert_eq!(table[0].id, 0);
+			assert_eq!(table[1].id, 0);
+			assert_eq!(table[2].id, 0);
+		}
+
+
 
 		// Node 6 joins node 0
 		let mut s6 = NodeServer::new(&n6);
@@ -401,10 +444,43 @@ mod tests {
 		s3.stabilize().await;
 		s1.stabilize().await;
 		s0.stabilize().await;
-		assert_eq!(s6.get_predecessor().unwrap().id, 0);
-		assert_eq!(s0.get_predecessor().unwrap().id, 1);
-		assert_eq!(s1.get_predecessor().unwrap().id, 3);
-		assert_eq!(s3.get_predecessor().unwrap().id, 6);
+
+		assert_eq!(s6.get_predecessor().unwrap().id, 3);
+		assert_eq!(s0.get_predecessor().unwrap().id, 6);
+		assert_eq!(s1.get_predecessor().unwrap().id, 0);
+		assert_eq!(s3.get_predecessor().unwrap().id, 1);
+
+		// See finger table in Figure 6a
+		fix_all_fingers(&mut s0).await;
+		{
+			let table = s0.finger_table.read().unwrap();
+			assert_eq!(table[0].id, 1);
+			assert_eq!(table[1].id, 3);
+			assert_eq!(table[2].id, 6);
+		}
+		fix_all_fingers(&mut s1).await;
+		{
+			let table = s1.finger_table.read().unwrap();
+			assert_eq!(table[0].id, 3);
+			assert_eq!(table[1].id, 3);
+			assert_eq!(table[2].id, 6);
+		}
+		fix_all_fingers(&mut s3).await;
+		{
+			let table = s3.finger_table.read().unwrap();
+			assert_eq!(table[0].id, 6);
+			assert_eq!(table[1].id, 6);
+			assert_eq!(table[2].id, 0);
+		}
+		fix_all_fingers(&mut s6).await;
+		{
+			let table = s6.finger_table.read().unwrap();
+			assert_eq!(table[0].id, 0);
+			assert_eq!(table[1].id, 0);
+			// different from figure 6 because of different NUM_BITS
+			assert_eq!(table[2].id, 0);
+		}
+
 
 		Ok(())
 	}
