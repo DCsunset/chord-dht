@@ -12,7 +12,7 @@ use tarpc::{
 };
 use futures::{future, prelude::*};
 use log::{info, warn, debug};
-use crate::chord::{
+use super::{
 	ring::*,
 	config::*
 };
@@ -67,9 +67,17 @@ impl NodeServer {
 		table[0].clone()
 	}
 
-	pub fn set_successor(&mut self, node: Node) {
+	pub fn set_successor(&self, node: Node) {
 		let mut table = self.finger_table.write().unwrap();
 		table[0] = node;
+	}
+
+	pub fn get_predecessor(&self) -> Option<Node> {
+		self.predecessor.read().unwrap().clone()
+	}
+
+	pub fn set_predecessor(&self, node: Option<Node>) {
+		*self.predecessor.write().unwrap() = node;
 	}
 
 	// Start the server
@@ -162,7 +170,7 @@ impl NodeServer {
 	// Figure 7: n.join
 	pub async fn join(&mut self, node: &Node) {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
-		*self.predecessor.write().unwrap() = None;
+		self.set_predecessor(None);
 		let n = self.get_connection(node).await;
 		let succ = n.find_successor_rpc(context::current(), self.node.id).await.unwrap();
 		self.set_successor(succ);
@@ -217,14 +225,14 @@ impl NodeServer {
 		debug!("Node {}: find_predecessor({})", self.node.id, id);
 		let mut n = self.node.clone();
 		let mut succ = self.get_successor();
+		let mut conn = self.get_connection(&n).await;
 
 		// stop when id in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
 			debug!("Node {}: find_predecessor range ({}, {}]", self.node.id, n.id, succ.id);
-			let node = self.get_connection(&n).await;
-			n = node.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
-			let new_node = self.get_connection(&n).await;
-			succ = new_node.get_successor_rpc(context::current()).await.unwrap();
+			n = conn.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
+			conn = self.get_connection(&n).await;
+			succ = conn.get_successor_rpc(context::current()).await.unwrap();
 		}
 		n
 	}
@@ -243,17 +251,17 @@ impl NodeServer {
 
 	// Figure 7: n.notify
 	async fn notify(&mut self, node: Node) {
-		let mut pred = self.predecessor.write().unwrap();
-		let new_pred = match pred.as_ref() {
-			Some(p) => if in_range(node.id, p.id, self.node.id) {
+		let pred = self.get_predecessor();
+		let new_pred = match pred {
+			Some(p) => if !in_range(node.id, p.id, self.node.id) {
 				node
 			} else {
-				p.clone()
+				return;
 			},
 			None => node
 		};
 		debug!("Node {}: new predecessor set in notify: {}", self.node.id, new_pred.id);
-		*pred = Some(new_pred);
+		self.set_predecessor(Some(new_pred));
 	}
 }
 
@@ -313,3 +321,4 @@ impl NodeService for NodeServer {
 		debug!("Node {}: stabilize_rpc finished", self.node.id);
 	}
 }
+
