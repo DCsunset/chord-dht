@@ -14,7 +14,8 @@ use futures::{future, prelude::*};
 use log::{info, warn, debug};
 use super::{
 	ring::*,
-	config::*
+	config::*,
+	data_store::*
 };
 
 // Data part of the node
@@ -35,11 +36,15 @@ pub trait NodeService {
 	async fn closest_preceding_finger_rpc(id: Digest) -> Node;
 	async fn notify_rpc(node: Node);
 	async fn stabilize_rpc();
+
+	async fn get_rpc(key: Key) -> Option<Value>;
+	async fn set_rpc(key: Key, value: Option<Value>);
 }
 
 #[derive(Clone)]
 pub struct NodeServer {
 	node: Node,
+	store: DataStore,
 	predecessor: Arc<RwLock<Option<Node>>>,
 	// The first entry is successor
 	finger_table: Arc<RwLock<Vec<Node>>>,
@@ -55,6 +60,7 @@ impl NodeServer {
 
 		NodeServer {
 			node: node.clone(),
+			store: DataStore::new(),
 			predecessor: Arc::new(RwLock::new(Some(node.clone()))),
 			finger_table: Arc::new(RwLock::new(finger_table)),
 			connection_map: Arc::new(RwLock::new(HashMap::new()))
@@ -317,6 +323,19 @@ impl NodeService for NodeServer {
 		self.stabilize().await;
 		debug!("Node {}: stabilize_rpc finished", self.node.id);
 	}
+
+	async fn get_rpc(self, _: context::Context, key: Key) -> Option<Value> {
+		debug!("Node {}: get_rpc called", self.node.id);
+		let value = self.store.get(&key);
+		debug!("Node {}: get_rpc finished", self.node.id);
+		value
+	}
+
+	async fn set_rpc(self, _: context::Context, key: Key, value: Option<Value>) {
+		debug!("Node {}: set_rpc called", self.node.id);
+		self.store.set(key, value);
+		debug!("Node {}: set_rpc finished", self.node.id);
+	}
 }
 
 
@@ -480,7 +499,6 @@ mod tests {
 			// different from figure 6 because of different NUM_BITS
 			assert_eq!(table[2].id, 0);
 		}
-
 
 		Ok(())
 	}
