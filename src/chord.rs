@@ -1,7 +1,7 @@
 pub mod node;
 pub mod ring;
 pub mod config;
-mod data_store;
+pub mod data_store;
 
 pub use node::*;
 pub use config::*;

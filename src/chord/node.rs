@@ -17,28 +17,13 @@ use super::{
 	config::*,
 	data_store::*
 };
+use crate::rpc::*;
 
 // Data part of the node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
 	pub id: Digest,
 	pub addr: String
-}
-
-#[tarpc::service]
-pub trait NodeService {
-	async fn get_node_rpc() -> Node;
-	async fn get_predecessor_rpc() -> Option<Node>;
-	async fn get_successor_rpc() -> Node;
-
-	async fn find_successor_rpc(id: Digest) -> Node;
-	async fn find_predecessor_rpc(id: Digest) -> Node;
-	async fn closest_preceding_finger_rpc(id: Digest) -> Node;
-	async fn notify_rpc(node: Node);
-	async fn stabilize_rpc();
-
-	async fn get_rpc(key: Key) -> Option<Value>;
-	async fn set_rpc(key: Key, value: Option<Value>);
 }
 
 #[derive(Clone)]

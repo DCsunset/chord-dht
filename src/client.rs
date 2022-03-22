@@ -1,4 +1,4 @@
-use crate::chord::NodeServiceClient;
+use crate::rpc::NodeServiceClient;
 use tarpc::tokio_serde::formats::Bincode;
 use log::info;
 
