@@ -16,6 +16,10 @@ pub trait NodeService {
 	async fn notify_rpc(node: Node);
 	async fn stabilize_rpc();
 
+	// Get or set key locally
+	async fn get_local_rpc(key: Key) -> Option<Value>;
+	async fn set_local_rpc(key: Key, value: Option<Value>);
+	// Get or set key on the ring
 	async fn get_rpc(key: Key) -> Option<Value>;
 	async fn set_rpc(key: Key, value: Option<Value>);
 }

@@ -18,6 +18,7 @@ use super::{
 	data_store::*
 };
 use crate::rpc::*;
+use crate::chord::calculate_hash;
 
 // Data part of the node
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,6 +252,25 @@ impl NodeServer {
 		debug!("Node {}: new predecessor set in notify: {}", self.node.id, node.id);
 		self.set_predecessor(Some(node));
 	}
+
+	// Get key on the ring
+	async fn get(&mut self, key: Key) -> Option<Value> {
+		let id = calculate_hash(&key);
+		let succ = self.find_successor(id).await;
+		let c = self.get_connection(&succ).await;
+
+		let value = c.get_local_rpc(context::current(), key).await.unwrap();
+		value
+	}
+
+	// Set key on the ring
+	async fn set(&mut self, key: Key, value: Option<Value>) {
+		let id = calculate_hash(&key);
+		let succ = self.find_successor(id).await;
+		let c = self.get_connection(&succ).await;
+
+		c.set_local_rpc(context::current(), key, value).await.unwrap();
+	}
 }
 
 #[tarpc::server]
@@ -309,16 +329,29 @@ impl NodeService for NodeServer {
 		debug!("Node {}: stabilize_rpc finished", self.node.id);
 	}
 
-	async fn get_rpc(self, _: context::Context, key: Key) -> Option<Value> {
-		debug!("Node {}: get_rpc called", self.node.id);
+	async fn get_local_rpc(self, _: context::Context, key: Key) -> Option<Value> {
+		debug!("Node {}: get_local_rpc called", self.node.id);
 		let value = self.store.get(&key);
+		debug!("Node {}: get_local_rpc finished", self.node.id);
+		value
+	}
+
+	async fn set_local_rpc(self, _: context::Context, key: Key, value: Option<Value>) {
+		debug!("Node {}: set_local_rpc called", self.node.id);
+		self.store.set(key, value);
+		debug!("Node {}: set_local_rpc finished", self.node.id);
+	}
+
+	async fn get_rpc(mut self, _: context::Context, key: Key) -> Option<Value> {
+		debug!("Node {}: get_rpc called", self.node.id);
+		let value = self.get(key).await;
 		debug!("Node {}: get_rpc finished", self.node.id);
 		value
 	}
 
-	async fn set_rpc(self, _: context::Context, key: Key, value: Option<Value>) {
+	async fn set_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
 		debug!("Node {}: set_rpc called", self.node.id);
-		self.store.set(key, value);
+		self.set(key, value).await;
 		debug!("Node {}: set_rpc finished", self.node.id);
 	}
 }
