@@ -1,5 +1,5 @@
-use chord_rust::{
-	chord::{
+use chord_dht::{
+	core::{
 		ring::{
 			NUM_BITS,
 			in_range

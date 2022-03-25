@@ -1,4 +1,4 @@
-use crate::chord::{
+use crate::core::{
 	ring::Digest,
 	Node,
 	data_store::{Key, Value}

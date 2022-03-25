@@ -1,10 +1,10 @@
-# chord-rust
+# chord-dht
 
 A DHT (distributed hash table) implementation in Rust based on Chord with high peformance and data replication.
 
-## Features
+## Features built upon Chord
 
-* In-memory DHT
+* In-memory key-value DHT
 * Lazy replication
 
 Lazy replication is preferred because the in-memory DHT is aimed to store ephemeral data (e.g. user tokens).

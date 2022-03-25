@@ -1,3 +1,3 @@
-pub mod chord;
+pub mod core;
 pub mod client;
 pub mod rpc;

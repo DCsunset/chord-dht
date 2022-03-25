@@ -1,7 +1,8 @@
-use chord_rust::chord::{
+use chord_dht::core::{
 	self,
 	config::*,
-	NodeServer
+	NodeServer,
+	Node
 };
 use clap::Parser;
 
@@ -21,9 +22,9 @@ async fn main() -> anyhow::Result<()> {
 	env_logger::init();
 	let args = Args::parse();
 
-	let node = chord::construct_node(&args.addr);
-	let join_node: Option<chord::Node> = match args.join.as_ref() {
-		Some(n) => Some(chord::construct_node(n)),
+	let node = core::construct_node(&args.addr);
+	let join_node: Option<Node> = match args.join.as_ref() {
+		Some(n) => Some(core::construct_node(n)),
 		None => None
 	};
 

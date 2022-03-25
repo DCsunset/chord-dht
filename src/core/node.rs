@@ -18,7 +18,7 @@ use super::{
 	data_store::*
 };
 use crate::rpc::*;
-use crate::chord::calculate_hash;
+use super::calculate_hash;
 
 // Data part of the node
 #[derive(Debug, Clone, Serialize, Deserialize)]
