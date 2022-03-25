@@ -260,10 +260,16 @@ impl NodeServer {
 
 	// Get key on the ring
 	async fn get(&mut self, key: Key) -> Option<Value> {
+		// Try local store first because of replication
+		match self.store.get(&key) {
+			Some(v) => return Some(v),
+			None => ()
+		}
+
+		// Fetch from the responsible node
 		let id = calculate_hash(&key);
 		let succ = self.find_successor(id).await;
 		let c = self.get_connection(&succ).await;
-
 		let value = c.get_local_rpc(context::current(), key).await.unwrap();
 		value
 	}
