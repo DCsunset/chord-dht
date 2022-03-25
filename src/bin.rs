@@ -1,4 +1,8 @@
-use chord_rust::chord;
+use chord_rust::chord::{
+	self,
+	config::*,
+	NodeServer
+};
 use clap::Parser;
 
 #[derive(Parser)]
@@ -23,10 +27,14 @@ async fn main() -> anyhow::Result<()> {
 		None => None
 	};
 
-	let mut s = chord::NodeServer::new(&node);
-	let config = chord::Config {
+	let node_config = NodeConfig {
+		node: node,
+		replication_factor: 1
+	};
+	let mut s = NodeServer::new(&node_config);
+	let config = RuntimeConfig {
 		join_node: join_node,
-		..chord::Config::default()
+		..RuntimeConfig::default()
 	};
 	let handle = s.start(&config).await?;
 	handle.await?;

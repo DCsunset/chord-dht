@@ -22,4 +22,6 @@ pub trait NodeService {
 	// Get or set key on the ring
 	async fn get_rpc(key: Key) -> Option<Value>;
 	async fn set_rpc(key: Key, value: Option<Value>);
+
+	async fn replicate_rpc(key: Key, value: Option<Value>, num: u32);
 }

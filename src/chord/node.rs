@@ -31,6 +31,7 @@ pub struct Node {
 pub struct NodeServer {
 	node: Node,
 	store: DataStore,
+	replication_factor: u32,
 	predecessor: Arc<RwLock<Option<Node>>>,
 	// The first entry is successor
 	finger_table: Arc<RwLock<Vec<Node>>>,
@@ -39,14 +40,18 @@ pub struct NodeServer {
 }
 
 impl NodeServer {
-	pub fn new(node: &Node) -> Self {
+	pub fn new(config: &NodeConfig) -> Self {
+		assert!(config.replication_factor != 0, "replication_factor equal to 0");
+
 		// init a ring with only one node
 		// (see second part of n.join in Figure 6)
+		let node = config.node.clone();
 		let finger_table = vec![node.clone(); NUM_BITS];
 
 		NodeServer {
-			node: node.clone(),
+			node: config.node.clone(),
 			store: DataStore::new(),
+			replication_factor: config.replication_factor,
 			predecessor: Arc::new(RwLock::new(Some(node.clone()))),
 			finger_table: Arc::new(RwLock::new(finger_table)),
 			connection_map: Arc::new(RwLock::new(HashMap::new()))
@@ -72,7 +77,7 @@ impl NodeServer {
 	}
 
 	// Start the server
-	pub async fn start(&mut self, config: &Config) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+	pub async fn start(&mut self, config: &RuntimeConfig) -> anyhow::Result<tokio::task::JoinHandle<()>> {
 		if let Some(n) = config.join_node.as_ref() {
 			self.join(&n).await;
 		}
@@ -269,7 +274,23 @@ impl NodeServer {
 		let succ = self.find_successor(id).await;
 		let c = self.get_connection(&succ).await;
 
-		c.set_local_rpc(context::current(), key, value).await.unwrap();
+		c.replicate_rpc(context::current(), key, value, self.replication_factor).await.unwrap();
+	}
+
+	// Replicate key to (num - 1) successors and itself
+	async fn replicate(&mut self, key: Key, value: Option<Value>, num: u32) {
+		assert!(num != 0, "replicate num is 0");
+		// replicate it locally
+		self.store.set(key.clone(), value.clone());
+
+		// replicate it to successors asynchronously (lazy)
+		if num - 1 > 0 {
+			let succ = self.get_successor();
+			let c = self.get_connection(&succ).await;
+			tokio::spawn(async move {
+				c.replicate_rpc(context::current(), key, value, num-1).await.unwrap();
+			});
+		}
 	}
 }
 
@@ -354,6 +375,12 @@ impl NodeService for NodeServer {
 		self.set(key, value).await;
 		debug!("Node {}: set_rpc finished", self.node.id);
 	}
+
+	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>, num: u32) {
+		debug!("Node {}: replicate_rpc called", self.node.id);
+		self.replicate(key, value, num).await;
+		debug!("Node {}: replicate_rpc finished", self.node.id);
+	}
 }
 
 
@@ -393,14 +420,18 @@ mod tests {
 			id: 6
 		};
 
-		let mut s0 = NodeServer::new(&n0);
-		// Disable auto fix_finger and stabilize
-		let mut config = Config {
+		let mut node_config = NodeConfig {
+			node: n0.clone(),
+			replication_factor: 1
+		};
+		let mut runtime_config = RuntimeConfig {
 			join_node: None,
 			fix_finger_interval: 0,
 			stabilize_interval: 0
 		};
-		s0.start(&config).await?;
+		let mut s0 = NodeServer::new(&node_config);
+		// Disable auto fix_finger and stabilize
+		s0.start(&runtime_config).await?;
 		s0.stabilize().await;
 		// single-node ring
 		assert_eq!(s0.get_predecessor().unwrap().id, 0);
@@ -408,9 +439,10 @@ mod tests {
 
 
 		// Node 1 joins node 0
-		let mut s1 = NodeServer::new(&n1);
-		config.join_node = Some(n0.clone());
-		s1.start(&config).await?;
+		node_config.node = n1.clone();
+		let mut s1 = NodeServer::new(&node_config);
+		runtime_config.join_node = Some(n0.clone());
+		s1.start(&runtime_config).await?;
 		assert_eq!(s1.get_successor().id, 0);
 
 		// Stabilize c1 first to notify c0
@@ -437,9 +469,10 @@ mod tests {
 
 
 		// Node 3 joins node 1
-		let mut s3 = NodeServer::new(&n3);
-		config.join_node = Some(n1.clone());
-		s3.start(&config).await?;
+		node_config.node = n3.clone();
+		let mut s3 = NodeServer::new(&node_config);
+		runtime_config.join_node = Some(n1.clone());
+		s3.start(&runtime_config).await?;
 		s3.stabilize().await;
 		s1.stabilize().await;
 		s0.stabilize().await;
@@ -474,9 +507,10 @@ mod tests {
 
 
 		// Node 6 joins node 0
-		let mut s6 = NodeServer::new(&n6);
-		config.join_node = Some(n0.clone());
-		s6.start(&config).await?;
+		node_config.node = n6.clone();
+		let mut s6 = NodeServer::new(&node_config);
+		runtime_config.join_node = Some(n0.clone());
+		s6.start(&runtime_config).await?;
 		s6.stabilize().await;
 		s3.stabilize().await;
 		s1.stabilize().await;
