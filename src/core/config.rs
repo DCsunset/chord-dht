@@ -4,14 +4,14 @@ use std::default::Default;
 pub struct NodeConfig {
 	pub node: Node,
 	// replicate data in k successors
-	pub replication_factor: u32
+	pub replication_factor: u64
 }
 
 pub struct RuntimeConfig {
 	pub join_node: Option<Node>,
 	// interval in ms (0 means disabling it)
-	pub stabilize_interval: u32,
-	pub fix_finger_interval: u32,
+	pub stabilize_interval: u64,
+	pub fix_finger_interval: u64,
 }
 
 impl Default for RuntimeConfig {

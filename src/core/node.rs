@@ -31,7 +31,7 @@ pub struct Node {
 pub struct NodeServer {
 	node: Node,
 	store: DataStore,
-	replication_factor: u32,
+	replication_factor: u64,
 	predecessor: Arc<RwLock<Option<Node>>>,
 	// The first entry is successor
 	finger_table: Arc<RwLock<Vec<Node>>>,
@@ -105,7 +105,7 @@ impl NodeServer {
 		if stabilize_interval > 0 {
 			tokio::spawn(async move {
 				let mut interval = tokio::time::interval(
-					chrono::Duration::milliseconds(stabilize_interval.into()).to_std().unwrap()
+					tokio::time::Duration::from_millis(stabilize_interval)
 				);
 				// let mut s= server.clone();
 				loop {
@@ -121,7 +121,7 @@ impl NodeServer {
 		if fix_finger_interval > 0 {
 			tokio::spawn(async move {
 				let mut interval = tokio::time::interval(
-					chrono::Duration::milliseconds(fix_finger_interval.into()).to_std().unwrap()
+					tokio::time::Duration::from_millis(fix_finger_interval)
 				);
 				// StdRng can be sent across threads
 				let mut rng = rand::prelude::StdRng::from_entropy();
@@ -278,7 +278,7 @@ impl NodeServer {
 	}
 
 	// Replicate key to (num - 1) successors and itself
-	async fn replicate(&mut self, key: Key, value: Option<Value>, num: u32) {
+	async fn replicate(&mut self, key: Key, value: Option<Value>, num: u64) {
 		assert!(num != 0, "replicate num is 0");
 		// replicate it locally
 		self.store.set(key.clone(), value.clone());
@@ -376,7 +376,7 @@ impl NodeService for NodeServer {
 		debug!("Node {}: set_rpc finished", self.node.id);
 	}
 
-	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>, num: u32) {
+	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>, num: u64) {
 		debug!("Node {}: replicate_rpc called", self.node.id);
 		self.replicate(key, value, num).await;
 		debug!("Node {}: replicate_rpc finished", self.node.id);

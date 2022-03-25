@@ -23,5 +23,5 @@ pub trait NodeService {
 	async fn get_rpc(key: Key) -> Option<Value>;
 	async fn set_rpc(key: Key, value: Option<Value>);
 
-	async fn replicate_rpc(key: Key, value: Option<Value>, num: u32);
+	async fn replicate_rpc(key: Key, value: Option<Value>, num: u64);
 }
