@@ -15,8 +15,8 @@ impl Default for Config {
 		Self {
 			fault_tolerance: 0,
 			replication_factor: 1,
-			stabilize_interval: 50,
-			fix_finger_interval: 50
+			stabilize_interval: 200,
+			fix_finger_interval: 200
 		}
 	}
 }
