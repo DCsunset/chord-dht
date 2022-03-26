@@ -35,6 +35,9 @@ pub struct NodeServer {
 	predecessor: Arc<RwLock<Option<Node>>>,
 	// The first entry is successor
 	finger_table: Arc<RwLock<Vec<Node>>>,
+	// Maintain repl_factor successors for recovery
+	// the length of backup_successors is (repl_factor - 1)
+	next_successors: Arc<RwLock<Vec<Node>>>,
 	// connection to remote nodes
 	connection_map: Arc<RwLock<HashMap<Digest, NodeServiceClient>>>
 }
@@ -46,6 +49,7 @@ impl NodeServer {
 		// init a ring with only one node
 		// (see second part of n.join in Figure 6)
 		let finger_table = vec![node.clone(); NUM_BITS];
+		let next_successors = vec![node.clone(); config.failure_tolerance as usize];
 
 		NodeServer {
 			node: node.clone(),
@@ -53,6 +57,7 @@ impl NodeServer {
 			config: config,
 			predecessor: Arc::new(RwLock::new(Some(node.clone()))),
 			finger_table: Arc::new(RwLock::new(finger_table)),
+			next_successors: Arc::new(RwLock::new(next_successors)),
 			connection_map: Arc::new(RwLock::new(HashMap::new()))
 		}
 	}
