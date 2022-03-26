@@ -294,15 +294,11 @@ impl NodeServer {
 
 	// Get key on the ring
 	async fn get(&mut self, key: Key) -> Option<Value> {
-		if self.config.read_replica {
-			// Try local store first because of replication
-			// Read from local replica
-			// (might be stale if replication is async)
-			match self.store.get(&key) {
-				Some(v) => return Some(v),
-				None => ()
-			};
-		}
+		// Try readiing from local replica first
+		match self.store.get(&key) {
+			Some(v) => return Some(v),
+			None => ()
+		};
 
 		// Fetch from the responsible node
 		let id = calculate_hash(&key);
@@ -321,31 +317,36 @@ impl NodeServer {
 		c.replicate_rpc(
 			context::current(),
 			key,
-			value,
-			self.config.replication_factor
+			value
 		).await.unwrap();
 	}
 
 	// Replicate key to (num - 1) successors and itself
-	async fn replicate(&mut self, key: Key, value: Option<Value>, num: u64) {
-		assert!(num != 0, "replicate num is 0");
+	async fn replicate(&mut self, key: Key, value: Option<Value>) {
 		// replicate it locally
 		self.store.set(key.clone(), value.clone());
 
-		// replicate data
-		if num - 1 > 0 {
-			let succ = self.get_successor();
-			let c = self.get_connection(&succ).await;
-			if self.config.async_replication {
-				// replicate data asynchronously (lazy)
-				tokio::spawn(async move {
-					c.replicate_rpc(context::current(), key, value, num-1).await.unwrap();
-				});
+		// replicate data to (replication_factor - 1) nodes
+		let num = (self.config.replication_factor - 1) as usize;
+		if num > 0 {
+			let ctx = context::current();
+			// Must store conn because fut_list borrows them
+			let mut conn_list = Vec::new();
+			let mut fut_list = Vec::new();
+			for i in 0..num {
+				let node = self.successor_list.read().unwrap()[i].clone();
+				let c = self.get_connection(&node).await;
+				conn_list.push(c);
 			}
-			else {
-				// replicate data synchronously
-				c.replicate_rpc(context::current(), key, value, num-1).await.unwrap();
+
+			for c in conn_list.iter() {
+				let k = key.clone();
+				let v = value.clone();
+				fut_list.push(c.set_local_rpc(ctx, k, v));
 			}
+
+			// replicate data concurrently
+			future::join_all(fut_list).await;
 		}
 	}
 }
@@ -439,9 +440,9 @@ impl NodeService for NodeServer {
 		debug!("Node {}: set_rpc finished", self.node.id);
 	}
 
-	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>, num: u64) {
+	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
 		debug!("Node {}: replicate_rpc called", self.node.id);
-		self.replicate(key, value, num).await;
+		self.replicate(key, value).await;
 		debug!("Node {}: replicate_rpc finished", self.node.id);
 	}
 }
