@@ -45,6 +45,7 @@ pub struct NodeServer {
 impl NodeServer {
 	pub fn new(node: Node, config: Config) -> Self {
 		assert!(config.replication_factor != 0, "replication_factor equal to 0");
+		assert!(config.replication_factor <= config.failure_tolerance + 1, "replication_factor greater than failure_tolerance + 1");
 
 		// init a ring with only one node
 		// (see second part of n.join in Figure 6)
