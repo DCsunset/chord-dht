@@ -85,7 +85,7 @@ impl NodeServer {
 	// Start the server
 	pub async fn start(&mut self, join_node: Option<Node>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
 		if let Some(n) = join_node.as_ref() {
-			self.join(&n).await;
+			self.join(&n).await?;
 		}
 
 		let mut listener = tarpc::serde_transport::tcp::listen(&self.node.addr, Bincode::default).await?;
@@ -170,19 +170,20 @@ impl NodeServer {
 	}
 
 	// Figure 7: n.join
-	pub async fn join(&mut self, node: &Node) {
+	pub async fn join(&mut self, node: &Node) -> anyhow::Result<()> {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
 		self.set_predecessor(None);
 		let ctx = context::current();
 		let n = self.get_connection(node).await;
-		let succ = n.find_successor_rpc(ctx, self.node.id).await.unwrap();
+		let succ = n.find_successor_rpc(ctx, self.node.id).await?;
 		// new connection to successor
 		let n = self.get_connection(&succ).await;
-		let mut succ_list = n.get_successor_list_rpc(ctx).await.unwrap();
+		let mut succ_list = n.get_successor_list_rpc(ctx).await?;
 		succ_list.pop();
 		succ_list.insert(0, succ);
 		self.set_successor_list(succ_list);
 		debug!("Node {}: joined node {}", self.node.id, node.id);
+		Ok(())
 	}
 
 	// Figure 7: n.stabilize
