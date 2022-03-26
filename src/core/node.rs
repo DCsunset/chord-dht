@@ -259,10 +259,14 @@ impl NodeServer {
 
 	// Get key on the ring
 	async fn get(&mut self, key: Key) -> Option<Value> {
-		// Try local store first because of replication
-		match self.store.get(&key) {
-			Some(v) => return Some(v),
-			None => ()
+		if self.config.read_replica {
+			// Try local store first because of replication
+			// Read from local replica
+			// (might be stale if replication is async)
+			match self.store.get(&key) {
+				Some(v) => return Some(v),
+				None => ()
+			};
 		}
 
 		// Fetch from the responsible node
@@ -293,13 +297,20 @@ impl NodeServer {
 		// replicate it locally
 		self.store.set(key.clone(), value.clone());
 
-		// replicate it to successors asynchronously (lazy)
+		// replicate data
 		if num - 1 > 0 {
 			let succ = self.get_successor();
 			let c = self.get_connection(&succ).await;
-			tokio::spawn(async move {
+			if self.config.async_replication {
+				// replicate data asynchronously (lazy)
+				tokio::spawn(async move {
+					c.replicate_rpc(context::current(), key, value, num-1).await.unwrap();
+				});
+			}
+			else {
+				// replicate data synchronously
 				c.replicate_rpc(context::current(), key, value, num-1).await.unwrap();
-			});
+			}
 		}
 	}
 }

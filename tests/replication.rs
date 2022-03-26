@@ -8,7 +8,6 @@ use chord_dht::{
 };
 use rand::prelude::*;
 use tarpc::context;
-use tokio::time::{sleep, Duration};
 
 // Common mod in tests
 mod common;
@@ -41,7 +40,9 @@ async fn test_replication() -> anyhow::Result<()> {
 	};
 
 	// With replication factor of 3
+	// Use synchronous replication to verify correctness
 	let config = Config {
+		async_replication: true,
 		replication_factor: 3,
 		fix_finger_interval: 0,
 		stabilize_interval: 0,
@@ -98,8 +99,6 @@ async fn test_replication() -> anyhow::Result<()> {
 	let k1 = generate_key_in_range(&mut rng, n0.id, n1.id);
 	let v1 = vec![1u8];
 	c0.set_rpc(context::current(), k1.clone(), Some(v1.clone())).await.unwrap();
-	// Wait for replication
-	sleep(Duration::from_millis(50)).await;
 
 	assert_eq!(c0.get_rpc(context::current(), k1.clone()).await.unwrap().unwrap(), v1);
 	assert_eq!(c0.get_local_rpc(context::current(), k1.clone()).await.unwrap(), None);
@@ -111,8 +110,6 @@ async fn test_replication() -> anyhow::Result<()> {
 	let k2 = generate_key_in_range(&mut rng, n1.id, n3.id);
 	let v2 = vec![2u8];
 	c6.set_rpc(context::current(), k2.clone(), Some(v2.clone())).await.unwrap();
-	// Wait for replication
-	sleep(Duration::from_millis(50)).await;
 
 	assert_eq!(c1.get_rpc(context::current(), k2.clone()).await.unwrap().unwrap(), v2);
 	assert_eq!(c1.get_local_rpc(context::current(), k2.clone()).await.unwrap(), None);
@@ -123,8 +120,6 @@ async fn test_replication() -> anyhow::Result<()> {
 
 	// delete k1 from n1, n3, n6
 	c3.set_rpc(context::current(), k1.clone(), None).await.unwrap();
-	// Wait for replication
-	sleep(Duration::from_millis(50)).await;
 
 	assert_eq!(c0.get_rpc(context::current(), k1.clone()).await.unwrap(), None);
 	assert_eq!(c1.get_local_rpc(context::current(), k1.clone()).await.unwrap(), None);
