@@ -40,9 +40,8 @@ async fn test_replication() -> anyhow::Result<()> {
 	};
 
 	// With replication factor of 3
-	// Use synchronous replication to verify correctness
 	let config = Config {
-		async_replication: true,
+		fault_tolerance: 2,
 		replication_factor: 3,
 		fix_finger_interval: 0,
 		stabilize_interval: 0,

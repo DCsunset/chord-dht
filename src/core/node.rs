@@ -33,11 +33,10 @@ pub struct NodeServer {
 	store: DataStore,
 	config: Config,
 	predecessor: Arc<RwLock<Option<Node>>>,
-	// The first entry is successor
+	// The first entry is maintained by successor_list[0]
 	finger_table: Arc<RwLock<Vec<Node>>>,
-	// Maintain repl_factor successors for recovery
-	// the length of backup_successors is (repl_factor - 1)
-	next_successors: Arc<RwLock<Vec<Node>>>,
+	// Maintain (fault_tolerance + 1) successors for recovery
+	successor_list: Arc<RwLock<Vec<Node>>>,
 	// connection to remote nodes
 	connection_map: Arc<RwLock<HashMap<Digest, NodeServiceClient>>>
 }
@@ -50,7 +49,7 @@ impl NodeServer {
 		// init a ring with only one node
 		// (see second part of n.join in Figure 6)
 		let finger_table = vec![node.clone(); NUM_BITS];
-		let next_successors = vec![node.clone(); config.fault_tolerance as usize];
+		let successor_list = vec![node.clone(); config.fault_tolerance as usize + 1];
 
 		NodeServer {
 			node: node.clone(),
@@ -58,19 +57,21 @@ impl NodeServer {
 			config: config,
 			predecessor: Arc::new(RwLock::new(Some(node.clone()))),
 			finger_table: Arc::new(RwLock::new(finger_table)),
-			next_successors: Arc::new(RwLock::new(next_successors)),
+			successor_list: Arc::new(RwLock::new(successor_list)),
 			connection_map: Arc::new(RwLock::new(HashMap::new()))
 		}
 	}
 
 	pub fn get_successor(&self) -> Node {
-		let table = self.finger_table.read().unwrap();
-		table[0].clone()
+		self.successor_list.read().unwrap()[0].clone()
 	}
 
-	pub fn set_successor(&self, node: Node) {
-		let mut table = self.finger_table.write().unwrap();
-		table[0] = node;
+	pub fn get_successor_list(&self) -> Vec<Node> {
+		self.successor_list.read().unwrap().clone()
+	}
+
+	pub fn set_successor_list(&self, succ_list: Vec<Node>) {
+		*self.successor_list.write().unwrap() = succ_list;
 	}
 
 	pub fn get_predecessor(&self) -> Option<Node> {
@@ -172,35 +173,58 @@ impl NodeServer {
 	pub async fn join(&mut self, node: &Node) {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
 		self.set_predecessor(None);
+		let ctx = context::current();
 		let n = self.get_connection(node).await;
-		let succ = n.find_successor_rpc(context::current(), self.node.id).await.unwrap();
-		self.set_successor(succ);
+		let succ = n.find_successor_rpc(ctx, self.node.id).await.unwrap();
+		// new connection to successor
+		let n = self.get_connection(&succ).await;
+		let mut succ_list = n.get_successor_list_rpc(ctx).await.unwrap();
+		succ_list.pop();
+		succ_list.insert(0, succ);
+		self.set_successor_list(succ_list);
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 	}
 
 	// Figure 7: n.stabilize
 	pub async fn stabilize(&mut self) {
 		let ctx = context::current();
-		let mut succ = self.get_successor();
 
-		let self_node = self.node.clone();
-		let n = self.get_connection(&succ).await;
-		let x= match n.get_predecessor_rpc(ctx).await.unwrap() {
-			Some(v) => v,
-			None => {
-				warn!("Node {}: empty predecessor of successor node: {}", self_node.id, succ.id);
-				return;
+		let successor_list = self.get_successor_list();
+		for mut succ in successor_list.into_iter() {
+			let mut n = self.get_connection(&succ).await;
+
+			match n.get_predecessor_rpc(ctx).await {
+				Ok(pred) => {
+					// Update successors normally
+					let x = match pred {
+						Some(v) => v,
+						None => {
+							warn!("Node {}: empty predecessor of successor node: {}", self.node.id, succ.id);
+							return;
+						}
+					};
+					if in_range(x.id, self.node.id, succ.id) {
+						// update connection because succ change
+						n = self.get_connection(&x).await;
+						// update succ
+						succ = x;
+					}
+
+					// Get succ_list from new node
+					let mut new_succ_list = n.get_successor_list_rpc(ctx).await.unwrap();
+					new_succ_list.pop();
+					new_succ_list.insert(0, succ);
+					self.set_successor_list(new_succ_list);
+
+					n.notify_rpc(ctx, self.node.clone()).await.unwrap();
+					break;
+				},
+				Err(e) => {
+					warn!("Node {}: request failed: {}", self.node.id, e);
+					// Fail to connect to succ, try next
+				}
 			}
-		};
-		if in_range(x.id, self.node.id, succ.id) {
-			self.set_successor(x.clone());
-			// update succ
-			succ = x;
 		}
-
-		// update connection because succ may change here
-		let n = self.get_connection(&succ).await;
-		n.notify_rpc(ctx, self_node).await.unwrap();
 	}
 
 	// Figure 7: n.fix_fingers
@@ -242,9 +266,14 @@ impl NodeServer {
 	async fn closest_preceding_finger(&mut self, id: Digest) -> Node {
 		let table = self.finger_table.read().unwrap();
 		for i in (0..NUM_BITS).rev() {
-			let f = &table[i];
+			let f = if i > 0 {
+				table[i].clone()
+			} else {
+				// table[0] is maintained by successor_list[0]
+				self.get_successor()
+			};
 			if in_range(f.id, self.node.id, id) {
-				return f.clone();
+				return f;
 			};
 		}
 		self.node.clone()
@@ -342,6 +371,13 @@ impl NodeService for NodeServer {
 		let succ = self.get_successor();
 		debug!("Node {}: get_successor_rpc finished", self.node.id);
 		succ
+	}
+
+	async fn get_successor_list_rpc(self, _: context::Context) -> Vec<Node> {
+		debug!("Node {}: get_successor_rpc called", self.node.id);
+		let succ_list = self.successor_list.read().unwrap().clone();
+		debug!("Node {}: get_successor_rpc finished", self.node.id);
+		succ_list
 	}
 
 	async fn find_successor_rpc(mut self, _: context::Context, id: Digest) -> Node {
@@ -504,21 +540,21 @@ mod tests {
 		fix_all_fingers(&mut s0).await;
 		{
 			let table = s0.finger_table.read().unwrap();
-			assert_eq!(table[0].id, 1);
+			assert_eq!(s0.get_successor().id, 1);
 			assert_eq!(table[1].id, 3);
 			assert_eq!(table[2].id, 0);
 		}
 		fix_all_fingers(&mut s1).await;
 		{
 			let table = s1.finger_table.read().unwrap();
-			assert_eq!(table[0].id, 3);
+			assert_eq!(s1.get_successor().id, 3);
 			assert_eq!(table[1].id, 3);
 			assert_eq!(table[2].id, 0);
 		}
 		fix_all_fingers(&mut s3).await;
 		{
 			let table = s3.finger_table.read().unwrap();
-			assert_eq!(table[0].id, 0);
+			assert_eq!(s3.get_successor().id, 0);
 			assert_eq!(table[1].id, 0);
 			assert_eq!(table[2].id, 0);
 		}
@@ -541,28 +577,28 @@ mod tests {
 		fix_all_fingers(&mut s0).await;
 		{
 			let table = s0.finger_table.read().unwrap();
-			assert_eq!(table[0].id, 1);
+			assert_eq!(s0.get_successor().id, 1);
 			assert_eq!(table[1].id, 3);
 			assert_eq!(table[2].id, 6);
 		}
 		fix_all_fingers(&mut s1).await;
 		{
 			let table = s1.finger_table.read().unwrap();
-			assert_eq!(table[0].id, 3);
+			assert_eq!(s1.get_successor().id, 3);
 			assert_eq!(table[1].id, 3);
 			assert_eq!(table[2].id, 6);
 		}
 		fix_all_fingers(&mut s3).await;
 		{
 			let table = s3.finger_table.read().unwrap();
-			assert_eq!(table[0].id, 6);
+			assert_eq!(s3.get_successor().id, 6);
 			assert_eq!(table[1].id, 6);
 			assert_eq!(table[2].id, 0);
 		}
 		fix_all_fingers(&mut s6).await;
 		{
 			let table = s6.finger_table.read().unwrap();
-			assert_eq!(table[0].id, 0);
+			assert_eq!(s6.get_successor().id, 0);
 			assert_eq!(table[1].id, 0);
 			// different from figure 6 because of different NUM_BITS
 			assert_eq!(table[2].id, 0);

@@ -9,6 +9,7 @@ pub trait NodeService {
 	async fn get_node_rpc() -> Node;
 	async fn get_predecessor_rpc() -> Option<Node>;
 	async fn get_successor_rpc() -> Node;
+	async fn get_successor_list_rpc() -> Vec<Node>;
 
 	async fn find_successor_rpc(id: Digest) -> Node;
 	async fn find_predecessor_rpc(id: Digest) -> Node;

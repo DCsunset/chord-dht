@@ -19,7 +19,7 @@ impl Default for Config {
 		Self {
 			fault_tolerance: 0,
 			replication_factor: 1,
-			async_replication: true,
+			async_replication: false,
 			read_replica: true,
 			stabilize_interval: 50,
 			fix_finger_interval: 50
