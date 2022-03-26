@@ -41,43 +41,44 @@ async fn test_replication() -> anyhow::Result<()> {
 	};
 
 	// With replication factor of 3
-	let mut node_config = NodeConfig {
-		node: n0.clone(),
-		replication_factor: 3
-	};
-	let mut s0 = NodeServer::new(&node_config);
-	// Disable auto fix_finger and stabilize
-	let mut runtime_config = RuntimeConfig {
-		join_node: None,
+	let config = Config {
+		replication_factor: 3,
 		fix_finger_interval: 0,
-		stabilize_interval: 0
+		stabilize_interval: 0,
+		..Config::default()
 	};
-	s0.start(&runtime_config).await?;
+	// Node 1 initializes
+	let mut s0 = NodeServer::new(n0.clone(), config.clone());
+	s0.start(None).await?;
 	let c0 = setup_client(&n0.addr).await;
 	s0.stabilize().await;
 
-	node_config.node = n1.clone();
-	let mut s1 = NodeServer::new(&node_config);
-	runtime_config.join_node = Some(n0.clone());
-	s1.start(&runtime_config).await?;
+	// Node 1 joins node 0
+	let mut s1 = NodeServer::new(n1.clone(), config.clone());
+	s1.start(Some(n0.clone())).await?;
 	let c1 = setup_client(&n1.addr).await;
 	s1.stabilize().await;
 	s0.stabilize().await;
 
-	node_config.node = n3.clone();
-	let mut s3 = NodeServer::new(&node_config);
-	runtime_config.join_node = Some(n1.clone());
-	s3.start(&runtime_config).await?;
+	fix_all_fingers(&mut s0).await;
+	fix_all_fingers(&mut s1).await;
+
+	// Node 3 joins node 1
+	let mut s3 = NodeServer::new(n3.clone(), config.clone());
+	s3.start(Some(n1.clone())).await?;
 	let c3 = setup_client(&n3.addr).await;
 	s3.stabilize().await;
 	s1.stabilize().await;
 	s0.stabilize().await;
 
+	// See finger table in Figure 3b
+	fix_all_fingers(&mut s0).await;
+	fix_all_fingers(&mut s1).await;
+	fix_all_fingers(&mut s3).await;
+
 	// Node 6 joins node 0
-	node_config.node = n6.clone();
-	let mut s6 = NodeServer::new(&node_config);
-	runtime_config.join_node = Some(n0.clone());
-	s6.start(&runtime_config).await?;
+	let mut s6 = NodeServer::new(n6.clone(), config.clone());
+	s6.start(Some(n0.clone())).await?;
 	let c6 = setup_client(&n6.addr).await;
 	s6.stabilize().await;
 	s3.stabilize().await;
@@ -89,6 +90,7 @@ async fn test_replication() -> anyhow::Result<()> {
 	fix_all_fingers(&mut s1).await;
 	fix_all_fingers(&mut s3).await;
 	fix_all_fingers(&mut s6).await;
+
 
 
 	let mut rng = StdRng::seed_from_u64(0);

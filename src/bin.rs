@@ -28,16 +28,9 @@ async fn main() -> anyhow::Result<()> {
 		None => None
 	};
 
-	let node_config = NodeConfig {
-		node: node,
-		replication_factor: 1
-	};
-	let mut s = NodeServer::new(&node_config);
-	let config = RuntimeConfig {
-		join_node: join_node,
-		..RuntimeConfig::default()
-	};
-	let handle = s.start(&config).await?;
+	let config = Config::default();
+	let mut s = NodeServer::new(node, config);
+	let handle = s.start(join_node).await?;
 	handle.await?;
 	Ok(())
 }
