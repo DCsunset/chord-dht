@@ -212,12 +212,15 @@ impl NodeServer {
 					}
 
 					// Get succ_list from new node
-					let mut new_succ_list = n.get_successor_list_rpc(ctx).await.unwrap();
-					new_succ_list.pop();
-					new_succ_list.insert(0, succ);
-					self.set_successor_list(new_succ_list);
+					// only update list if success
+					if let Ok(mut new_succ_list) = n.get_successor_list_rpc(ctx).await {
+						new_succ_list.pop();
+						new_succ_list.insert(0, succ);
+						self.set_successor_list(new_succ_list);
+						// ignore error here because it can only be fixed by stabilizing again
+						n.notify_rpc(ctx, self.node.clone()).await.unwrap_or(());
+					}
 
-					n.notify_rpc(ctx, self.node.clone()).await.unwrap();
 					break;
 				},
 				Err(e) => {
