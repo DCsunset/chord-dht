@@ -3,7 +3,7 @@ use std::default::Default;
 #[derive(Clone)]
 pub struct Config {
 	// tolerate max n node failures
-	pub failure_tolerance: u64,
+	pub fault_tolerance: u64,
 	// replicate data in k successors (1 <= k <= n+1)
 	pub replication_factor: u64,
 	// allow asynchronous replication (lazy)
@@ -17,7 +17,7 @@ pub struct Config {
 impl Default for Config {
 	fn default() -> Self {
 		Self {
-			failure_tolerance: 0,
+			fault_tolerance: 0,
 			replication_factor: 1,
 			async_replication: true,
 			read_replica: true,
