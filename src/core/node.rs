@@ -11,7 +11,7 @@ use tarpc::{
 	serde::Deserialize
 };
 use futures::{future, prelude::*};
-use log::{info, warn, debug};
+use log::{info, warn, debug, error};
 use super::{
 	ring::*,
 	config::*,
@@ -224,7 +224,7 @@ impl NodeServer {
 					break;
 				},
 				Err(e) => {
-					warn!("Node {}: request failed: {}", self.node.id, e);
+					error!("Node {}: fail to stabilize: {}", self.node.id, e);
 					// Fail to connect to succ, try next
 				}
 			}
@@ -233,37 +233,44 @@ impl NodeServer {
 
 	// Figure 7: n.fix_fingers
 	pub async fn fix_finger(&mut self, index: usize) {
-		let succ = self.find_successor(self.finger_table_start(index)).await;
-		let mut table = self.finger_table.write().unwrap();
-		table[index] = succ;
+		match self.find_successor(self.finger_table_start(index)).await {
+			Ok(succ) => {
+				let mut table = self.finger_table.write().unwrap();
+				table[index] = succ;
+			},
+			Err(e) => {
+				error!("Node {}: fail to fix finger: {}", self.node.id, e);
+			}
+		};
 	}
 
 	// Figure 4: n.find_successor
-	async fn find_successor(&mut self, id: Digest) -> Node {
+	async fn find_successor(&mut self, id: Digest) -> anyhow::Result<Node> {
 		debug!("Node {}: find_successor({})", self.node.id, id);
-		let n = self.find_predecessor(id).await;
+		let n = self.find_predecessor(id).await?;
 		let c = self.get_connection(&n).await;
-		let succ = c.get_successor_rpc(context::current()).await.unwrap();
+		let succ = c.get_successor_rpc(context::current()).await?;
 		debug!("Node {}: find_successor({}) returns {}", self.node.id, id, succ.id);
-		succ
+		Ok(succ)
 	}
 
 	// Figure 4: n.find_predecessor
-	async fn find_predecessor(&mut self, id: Digest) -> Node {
+	async fn find_predecessor(&mut self, id: Digest) -> anyhow::Result<Node> {
 		debug!("Node {}: find_predecessor({})", self.node.id, id);
 		let mut n = self.node.clone();
 		let mut succ = self.get_successor();
 		let mut conn = self.get_connection(&n).await;
+		let ctx = context::current();
 
 		// stop when id in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
 			debug!("Node {}: find_predecessor range ({}, {}]", self.node.id, n.id, succ.id);
-			n = conn.closest_preceding_finger_rpc(context::current(), id).await.unwrap();
+			n = conn.closest_preceding_finger_rpc(ctx, id).await?;
 			conn = self.get_connection(&n).await;
-			succ = conn.get_successor_rpc(context::current()).await.unwrap();
+			succ = conn.get_successor_rpc(ctx).await?;
 		}
 		debug!("Node {}: find_predecessor({}) returns {}", self.node.id, id, n.id);
-		n
+		Ok(n)
 	}
 
 	// Figure 4: n.closest_preceding_finger
@@ -297,36 +304,37 @@ impl NodeServer {
 	}
 
 	// Get key on the ring
-	async fn get(&mut self, key: Key) -> Option<Value> {
+	async fn get(&mut self, key: Key) -> anyhow::Result<Option<Value>> {
 		// Try readiing from local replica first
 		match self.store.get(&key) {
-			Some(v) => return Some(v),
+			Some(v) => return Ok(Some(v)),
 			None => ()
 		};
 
 		// Fetch from the responsible node
 		let id = calculate_hash(&key);
-		let succ = self.find_successor(id).await;
+		let succ = self.find_successor(id).await?;
 		let c = self.get_connection(&succ).await;
-		let value = c.get_local_rpc(context::current(), key).await.unwrap();
-		value
+		let value = c.get_local_rpc(context::current(), key).await?;
+		Ok(value)
 	}
 
 	// Set key on the ring
-	async fn set(&mut self, key: Key, value: Option<Value>) {
+	async fn set(&mut self, key: Key, value: Option<Value>) -> anyhow::Result<()> {
 		let id = calculate_hash(&key);
-		let succ = self.find_successor(id).await;
+		let succ = self.find_successor(id).await?;
 		let c = self.get_connection(&succ).await;
 
 		c.replicate_rpc(
 			context::current(),
 			key,
 			value
-		).await.unwrap();
+		).await?;
+		Ok(())
 	}
 
 	// Replicate key to (num - 1) successors and itself
-	async fn replicate(&mut self, key: Key, value: Option<Value>) {
+	async fn replicate(&mut self, key: Key, value: Option<Value>) -> anyhow::Result<()> {
 		// replicate it locally
 		self.store.set(key.clone(), value.clone());
 
@@ -350,8 +358,12 @@ impl NodeServer {
 			}
 
 			// replicate data concurrently
-			future::join_all(fut_list).await;
+			future::join_all(fut_list)
+				.await
+				.into_iter()
+				.collect::<Result<Vec<_>, _>>()?;
 		}
+		Ok(())
 	}
 }
 
@@ -366,7 +378,7 @@ impl NodeService for NodeServer {
 
 	async fn get_predecessor_rpc(self, _: context::Context) -> Option<Node> {
 		debug!("Node {}: get_predecessor_rpc called", self.node.id);
-		let pred = self.predecessor.read().unwrap().clone();
+		let pred = self.get_predecessor();
 		debug!("Node {}: get_predecessor_rpc finished", self.node.id);
 		pred
 	}
@@ -380,21 +392,21 @@ impl NodeService for NodeServer {
 
 	async fn get_successor_list_rpc(self, _: context::Context) -> Vec<Node> {
 		debug!("Node {}: get_successor_rpc called", self.node.id);
-		let succ_list = self.successor_list.read().unwrap().clone();
+		let succ_list = self.get_successor_list();
 		debug!("Node {}: get_successor_rpc finished", self.node.id);
 		succ_list
 	}
 
 	async fn find_successor_rpc(mut self, _: context::Context, id: Digest) -> Node {
 		debug!("Node {}: find_successor_rpc called", self.node.id);
-		let succ = self.find_successor(id).await;
+		let succ = self.find_successor(id).await.unwrap();
 		debug!("Node {}: find_successor_rpc finished", self.node.id);
 		succ
 	}
 
 	async fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> Node {
 		debug!("Node {}: find_predecessor_rpc called", self.node.id);
-		let pred = self.find_predecessor(id).await;
+		let pred = self.find_predecessor(id).await.unwrap();
 		debug!("Node {}: find_predecessor_rpc finished", self.node.id);
 		pred
 	}
@@ -433,20 +445,20 @@ impl NodeService for NodeServer {
 
 	async fn get_rpc(mut self, _: context::Context, key: Key) -> Option<Value> {
 		debug!("Node {}: get_rpc called", self.node.id);
-		let value = self.get(key).await;
+		let value = self.get(key).await.unwrap();
 		debug!("Node {}: get_rpc finished", self.node.id);
 		value
 	}
 
 	async fn set_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
 		debug!("Node {}: set_rpc called", self.node.id);
-		self.set(key, value).await;
+		self.set(key, value).await.unwrap();
 		debug!("Node {}: set_rpc finished", self.node.id);
 	}
 
 	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
 		debug!("Node {}: replicate_rpc called", self.node.id);
-		self.replicate(key, value).await;
+		self.replicate(key, value).await.unwrap();
 		debug!("Node {}: replicate_rpc finished", self.node.id);
 	}
 }
