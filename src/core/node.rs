@@ -15,7 +15,8 @@ use log::{info, warn, debug, error};
 use super::{
 	ring::*,
 	config::*,
-	data_store::*
+	data_store::*,
+	error::*
 };
 use crate::rpc::*;
 use super::calculate_hash;
@@ -25,6 +26,12 @@ use super::calculate_hash;
 pub struct Node {
 	pub id: Digest,
 	pub addr: String
+}
+
+impl std::fmt::Display for Node {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "Node({}, {})", self.id, self.addr)
+	}
 }
 
 #[derive(Clone)]
@@ -83,7 +90,7 @@ impl NodeServer {
 	}
 
 	// Start the server
-	pub async fn start(&mut self, join_node: Option<Node>) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+	pub async fn start(&mut self, join_node: Option<Node>) -> DhtResult<tokio::task::JoinHandle<()>> {
 		if let Some(n) = join_node.as_ref() {
 			self.join(&n).await?;
 		}
@@ -170,7 +177,7 @@ impl NodeServer {
 	}
 
 	// Figure 7: n.join
-	pub async fn join(&mut self, node: &Node) -> anyhow::Result<()> {
+	pub async fn join(&mut self, node: &Node) -> DhtResult<()> {
 		debug!("Node {}: joining node {}", self.node.id, node.id);
 		self.set_predecessor(None);
 		let ctx = context::current();
@@ -241,7 +248,7 @@ impl NodeServer {
 
 	// A modified version using successor_list
 	// from figure 4: n.find_successor
-	async fn find_successor_list(&mut self, id: Digest) -> anyhow::Result<Vec<Node>> {
+	async fn find_successor_list(&mut self, id: Digest) -> DhtResult<Vec<Node>> {
 		let n = self.find_predecessor(id).await?;
 		let c = self.get_connection(&n).await;
 		let succ_list = c.get_successor_list_rpc(context::current()).await?;
@@ -249,7 +256,7 @@ impl NodeServer {
 	}
 
 	// Figure 4: n.find_predecessor
-	async fn find_predecessor(&mut self, id: Digest) -> anyhow::Result<Node> {
+	async fn find_predecessor(&mut self, id: Digest) -> DhtResult<Node> {
 		debug!("Node {}: find_predecessor({})", self.node.id, id);
 		let mut n = self.node.clone();
 		let mut succ = self.get_successor();
@@ -298,7 +305,7 @@ impl NodeServer {
 	}
 
 	// Get key on the ring
-	async fn get(&mut self, key: Key) -> anyhow::Result<Option<Value>> {
+	async fn get(&mut self, key: Key) -> DhtResult<Option<Value>> {
 		// Try readiing from local replica first
 		match self.store.get(&key) {
 			Some(v) => return Ok(Some(v)),
@@ -310,15 +317,23 @@ impl NodeServer {
 		let succ_list = self.find_successor_list(id).await?;
 		for succ in succ_list.iter() {
 			let c = self.get_connection(&succ).await;
-			let value = c.get_local_rpc(context::current(), key).await?;
-			return Ok(value);
+			match c.get_local_rpc(context::current(), key.clone()).await {
+				Ok(value) => return Ok(value),
+				Err(e) => {
+					error!("Node {}: fail to get key {} from node {}: {}", self.node.id, id, succ.id, e);
+					// Continue trying next replica
+				}
+			};
 		}
-		// TODO: add custom error type 
-		panic!("Node: {}: no live nodes for key {}", self.node.id, id);
+
+		Err(DhtError::NoLiveSucc {
+			node: self.node.clone(),
+			id: id
+		})
 	}
 
 	// Set key on the ring
-	async fn set(&mut self, key: Key, value: Option<Value>) -> anyhow::Result<()> {
+	async fn set(&mut self, key: Key, value: Option<Value>) -> DhtResult<()> {
 		let id = calculate_hash(&key);
 		let succ_list = self.find_successor_list(id).await?;
 		let c = self.get_connection(&succ_list[0]).await;
@@ -332,7 +347,7 @@ impl NodeServer {
 	}
 
 	// Replicate key to (num - 1) successors and itself
-	async fn replicate(&mut self, key: Key, value: Option<Value>) -> anyhow::Result<()> {
+	async fn replicate(&mut self, key: Key, value: Option<Value>) -> DhtResult<()> {
 		// replicate it locally
 		self.store.set(key.clone(), value.clone());
 
@@ -474,7 +489,7 @@ mod tests {
 
 	/// Test figure 3b, 5a
 	#[tokio::test]
-	async fn test_node_metadata() -> anyhow::Result<()> {
+	async fn test_node_metadata() -> DhtResult<()> {
 		env_logger::init();
 
 		// Node 0

@@ -2,9 +2,11 @@ pub mod node;
 pub mod ring;
 pub mod config;
 pub mod data_store;
+pub mod error;
 
 pub use node::*;
 pub use config::*;
+pub use error::*;
 
 use std::{
 	collections::hash_map::DefaultHasher,

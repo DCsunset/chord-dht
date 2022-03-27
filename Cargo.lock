@@ -90,6 +90,7 @@ dependencies = [
  "rand",
  "serde",
  "tarpc",
+ "thiserror",
  "tokio",
 ]
 
