@@ -175,12 +175,7 @@ impl NodeServer {
 		self.set_predecessor(None);
 		let ctx = context::current();
 		let n = self.get_connection(node).await;
-		let succ = n.find_successor_rpc(ctx, self.node.id).await?;
-		// new connection to successor
-		let n = self.get_connection(&succ).await;
-		let mut succ_list = n.get_successor_list_rpc(ctx).await?;
-		succ_list.pop();
-		succ_list.insert(0, succ);
+		let succ_list = n.find_successor_list_rpc(ctx, self.node.id).await?;
 		self.set_successor_list(succ_list);
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 		Ok(())
@@ -233,10 +228,10 @@ impl NodeServer {
 
 	// Figure 7: n.fix_fingers
 	pub async fn fix_finger(&mut self, index: usize) {
-		match self.find_successor(self.finger_table_start(index)).await {
+		match self.find_successor_list(self.finger_table_start(index)).await {
 			Ok(succ) => {
 				let mut table = self.finger_table.write().unwrap();
-				table[index] = succ;
+				table[index] = succ[0].clone();
 			},
 			Err(e) => {
 				error!("Node {}: fail to fix finger: {}", self.node.id, e);
@@ -244,14 +239,13 @@ impl NodeServer {
 		};
 	}
 
-	// Figure 4: n.find_successor
-	async fn find_successor(&mut self, id: Digest) -> anyhow::Result<Node> {
-		debug!("Node {}: find_successor({})", self.node.id, id);
+	// A modified version using successor_list
+	// from figure 4: n.find_successor
+	async fn find_successor_list(&mut self, id: Digest) -> anyhow::Result<Vec<Node>> {
 		let n = self.find_predecessor(id).await?;
 		let c = self.get_connection(&n).await;
-		let succ = c.get_successor_rpc(context::current()).await?;
-		debug!("Node {}: find_successor({}) returns {}", self.node.id, id, succ.id);
-		Ok(succ)
+		let succ_list = c.get_successor_list_rpc(context::current()).await?;
+		Ok(succ_list)
 	}
 
 	// Figure 4: n.find_predecessor
@@ -313,17 +307,21 @@ impl NodeServer {
 
 		// Fetch from the responsible node
 		let id = calculate_hash(&key);
-		let succ = self.find_successor(id).await?;
-		let c = self.get_connection(&succ).await;
-		let value = c.get_local_rpc(context::current(), key).await?;
-		Ok(value)
+		let succ_list = self.find_successor_list(id).await?;
+		for succ in succ_list.iter() {
+			let c = self.get_connection(&succ).await;
+			let value = c.get_local_rpc(context::current(), key).await?;
+			return Ok(value);
+		}
+		// TODO: add custom error type 
+		panic!("Node: {}: no live nodes for key {}", self.node.id, id);
 	}
 
 	// Set key on the ring
 	async fn set(&mut self, key: Key, value: Option<Value>) -> anyhow::Result<()> {
 		let id = calculate_hash(&key);
-		let succ = self.find_successor(id).await?;
-		let c = self.get_connection(&succ).await;
+		let succ_list = self.find_successor_list(id).await?;
+		let c = self.get_connection(&succ_list[0]).await;
 
 		c.replicate_rpc(
 			context::current(),
@@ -397,9 +395,9 @@ impl NodeService for NodeServer {
 		succ_list
 	}
 
-	async fn find_successor_rpc(mut self, _: context::Context, id: Digest) -> Node {
+	async fn find_successor_list_rpc(mut self, _: context::Context, id: Digest) -> Vec<Node> {
 		debug!("Node {}: find_successor_rpc called", self.node.id);
-		let succ = self.find_successor(id).await.unwrap();
+		let succ = self.find_successor_list(id).await.unwrap();
 		debug!("Node {}: find_successor_rpc finished", self.node.id);
 		succ
 	}
