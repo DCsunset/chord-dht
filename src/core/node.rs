@@ -100,7 +100,7 @@ impl NodeServer {
 					// Clone a new server to share the data in Arc
 					channel.execute(server.clone().serve()).await;
 				})
-				.buffer_unordered(10)
+				.buffer_unordered(server.config.max_connections as usize)
 				.for_each(|_| async {})
 				.await;
 		});
