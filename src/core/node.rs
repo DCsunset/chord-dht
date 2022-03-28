@@ -182,7 +182,7 @@ impl NodeServer {
 		self.set_predecessor(None);
 		let ctx = context::current();
 		let n = self.get_connection(node).await;
-		let succ_list = n.find_successor_list_rpc(ctx, self.node.id).await?;
+		let succ_list = n.find_successor_list_rpc(ctx, self.node.id).await??;
 		self.set_successor_list(succ_list);
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 		Ok(())
@@ -338,11 +338,7 @@ impl NodeServer {
 		let succ_list = self.find_successor_list(id).await?;
 		let c = self.get_connection(&succ_list[0]).await;
 
-		c.replicate_rpc(
-			context::current(),
-			key,
-			value
-		).await?;
+		c.replicate_rpc(context::current(), key, value).await??;
 		Ok(())
 	}
 
@@ -410,18 +406,18 @@ impl NodeService for NodeServer {
 		succ_list
 	}
 
-	async fn find_successor_list_rpc(mut self, _: context::Context, id: Digest) -> Vec<Node> {
+	async fn find_successor_list_rpc(mut self, _: context::Context, id: Digest) -> RpcResult<Vec<Node>> {
 		debug!("Node {}: find_successor_rpc called", self.node.id);
-		let succ = self.find_successor_list(id).await.unwrap();
+		let succ_list = self.find_successor_list(id).await?;
 		debug!("Node {}: find_successor_rpc finished", self.node.id);
-		succ
+		Ok(succ_list)
 	}
 
-	async fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> Node {
+	async fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> RpcResult<Node> {
 		debug!("Node {}: find_predecessor_rpc called", self.node.id);
-		let pred = self.find_predecessor(id).await.unwrap();
+		let pred = self.find_predecessor(id).await?;
 		debug!("Node {}: find_predecessor_rpc finished", self.node.id);
-		pred
+		Ok(pred)
 	}
 
 	async fn closest_preceding_finger_rpc(mut self, _: context::Context, id: Digest) -> Node {
@@ -456,23 +452,25 @@ impl NodeService for NodeServer {
 		debug!("Node {}: set_local_rpc finished", self.node.id);
 	}
 
-	async fn get_rpc(mut self, _: context::Context, key: Key) -> Option<Value> {
+	async fn get_rpc(mut self, _: context::Context, key: Key) -> RpcResult<Option<Value>> {
 		debug!("Node {}: get_rpc called", self.node.id);
-		let value = self.get(key).await.unwrap();
+		let value = self.get(key).await?;
 		debug!("Node {}: get_rpc finished", self.node.id);
-		value
+		Ok(value)
 	}
 
-	async fn set_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
+	async fn set_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) -> RpcResult<()> {
 		debug!("Node {}: set_rpc called", self.node.id);
-		self.set(key, value).await.unwrap();
+		self.set(key, value).await?;
 		debug!("Node {}: set_rpc finished", self.node.id);
+		Ok(())
 	}
 
-	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
+	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) -> RpcResult<()> {
 		debug!("Node {}: replicate_rpc called", self.node.id);
-		self.replicate(key, value).await.unwrap();
+		self.replicate(key, value).await?;
 		debug!("Node {}: replicate_rpc finished", self.node.id);
+		Ok(())
 	}
 }
 
