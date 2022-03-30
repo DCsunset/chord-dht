@@ -150,7 +150,7 @@ impl NodeServer {
 			});
 		}
 
-		info!("Node {} listening at {}", self.node.id, self.node.addr);
+		info!("{}: listening at {}", self.node, self.node.addr);
 		Ok(handle)
 	}
 
@@ -170,9 +170,9 @@ impl NodeServer {
 			}
 		}
 		{
-			info!("Connecting from node {} to node {}", self.node.id, node.id);
+			debug!("{}: connecting to {}", self.node, node);
 			let c = crate::client::setup_client(&node.addr).await;
-			info!("Connected from node {} to node {}", self.node.id, node.id);
+			debug!("{}: connected to {}", self.node, node);
 			let mut map = self.connection_map.write().unwrap();
 			map.insert(node.id, c.clone());
 			return c;
@@ -181,13 +181,13 @@ impl NodeServer {
 
 	// Figure 7: n.join
 	pub async fn join(&mut self, node: &Node) -> DhtResult<()> {
-		debug!("Node {}: joining node {}", self.node.id, node.id);
+		debug!("{}: joining {}", self.node, node);
 		self.set_predecessor(None);
 		let ctx = context::current();
 		let n = self.get_connection(node).await;
 		let succ_list = n.find_successor_list_rpc(ctx, self.node.id).await?;
 		self.set_successor_list(succ_list);
-		debug!("Node {}: joined node {}", self.node.id, node.id);
+		debug!("{}: joined {}", self.node, node);
 		Ok(())
 	}
 
@@ -205,7 +205,7 @@ impl NodeServer {
 					let x = match pred {
 						Some(v) => v,
 						None => {
-							warn!("Node {}: empty predecessor of successor node: {}", self.node.id, succ.id);
+							warn!("{}: empty predecessor of successor {}", self.node, succ);
 							return;
 						}
 					};
@@ -245,7 +245,7 @@ impl NodeServer {
 				table[index] = succ[0].clone();
 			},
 			Err(e) => {
-				error!("Node {}: fail to fix finger: {}", self.node.id, e);
+				error!("{}: failed to fix finger: {}", self.node, e);
 			}
 		};
 	}
@@ -261,7 +261,7 @@ impl NodeServer {
 
 	// Figure 4: n.find_predecessor
 	async fn find_predecessor(&mut self, id: Digest) -> DhtResult<Node> {
-		debug!("Node {}: find_predecessor({})", self.node.id, id);
+		debug!("{}: find_predecessor({})", self.node, id);
 		let mut n = self.node.clone();
 		let mut succ = self.get_successor();
 		let mut conn = self.get_connection(&n).await;
@@ -269,12 +269,12 @@ impl NodeServer {
 
 		// stop when id in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
-			debug!("Node {}: find_predecessor range ({}, {}]", self.node.id, n.id, succ.id);
+			debug!("{}: find_predecessor range ({}, {}]", self.node, n.id, succ.id);
 			n = conn.closest_preceding_finger_rpc(ctx, id).await?;
 			conn = self.get_connection(&n).await;
 			succ = conn.get_successor_rpc(ctx).await?;
 		}
-		debug!("Node {}: find_predecessor({}) returns {}", self.node.id, id, n.id);
+		debug!("{}: find_predecessor({}) returns {}", self.node, id, n);
 		Ok(n)
 	}
 
@@ -304,7 +304,7 @@ impl NodeServer {
 			}
 		}
 
-		debug!("Node {}: new predecessor set in notify: {}", self.node.id, node.id);
+		debug!("{}: new predecessor set in notify: {}", self.node, node);
 		self.set_predecessor(Some(node));
 	}
 
@@ -324,7 +324,7 @@ impl NodeServer {
 			match c.get_local_rpc(context::current(), key.clone()).await {
 				Ok(value) => return Ok(value),
 				Err(e) => {
-					error!("Node {}: fail to get key {} from node {}: {}", self.node.id, id, succ.id, e);
+					error!("{}: fail to get key digest {} from {}: {}", self.node, id, succ, e);
 					// Continue trying next replica
 				}
 			};
