@@ -97,9 +97,9 @@ async fn test_replication() -> anyhow::Result<()> {
 	// k1 should be placed at n1, n3, n6
 	let k1 = generate_key_in_range(&mut rng, n0.id, n1.id);
 	let v1 = vec![1u8];
-	c0.set_rpc(context::current(), k1.clone(), Some(v1.clone())).await??;
+	c0.set_rpc(context::current(), k1.clone(), Some(v1.clone())).await?;
 
-	assert_eq!(c0.get_rpc(context::current(), k1.clone()).await??.unwrap(), v1);
+	assert_eq!(c0.get_rpc(context::current(), k1.clone()).await?.unwrap(), v1);
 	assert_eq!(c0.get_local_rpc(context::current(), k1.clone()).await.unwrap(), None);
 	assert_eq!(c1.get_local_rpc(context::current(), k1.clone()).await.unwrap().unwrap(), v1);
 	assert_eq!(c3.get_local_rpc(context::current(), k1.clone()).await.unwrap().unwrap(), v1);
@@ -108,19 +108,19 @@ async fn test_replication() -> anyhow::Result<()> {
 	// k2 should be placed at n3, n6, n0
 	let k2 = generate_key_in_range(&mut rng, n1.id, n3.id);
 	let v2 = vec![2u8];
-	c6.set_rpc(context::current(), k2.clone(), Some(v2.clone())).await??;
+	c6.set_rpc(context::current(), k2.clone(), Some(v2.clone())).await?;
 
-	assert_eq!(c1.get_rpc(context::current(), k2.clone()).await??.unwrap(), v2);
+	assert_eq!(c1.get_rpc(context::current(), k2.clone()).await?.unwrap(), v2);
 	assert_eq!(c1.get_local_rpc(context::current(), k2.clone()).await?, None);
-	assert_eq!(c3.get_rpc(context::current(), k2.clone()).await??.unwrap(), v2);
+	assert_eq!(c3.get_rpc(context::current(), k2.clone()).await?.unwrap(), v2);
 	assert_eq!(c3.get_local_rpc(context::current(), k2.clone()).await?.unwrap(), v2);
 	assert_eq!(c6.get_local_rpc(context::current(), k2.clone()).await?.unwrap(), v2);
 	assert_eq!(c0.get_local_rpc(context::current(), k2.clone()).await?.unwrap(), v2);
 
 	// delete k1 from n1, n3, n6
-	c3.set_rpc(context::current(), k1.clone(), None).await??;
+	c3.set_rpc(context::current(), k1.clone(), None).await?;
 
-	assert_eq!(c0.get_rpc(context::current(), k1.clone()).await??, None);
+	assert_eq!(c0.get_rpc(context::current(), k1.clone()).await?, None);
 	assert_eq!(c1.get_local_rpc(context::current(), k1.clone()).await?, None);
 	assert_eq!(c3.get_local_rpc(context::current(), k1.clone()).await?, None);
 	assert_eq!(c6.get_local_rpc(context::current(), k1.clone()).await?, None);

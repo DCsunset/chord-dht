@@ -16,7 +16,10 @@ use super::{
 	ring::*,
 	config::*,
 	data_store::*,
-	error::*
+	error::{
+		*,
+		DhtError::*
+	}
 };
 use crate::rpc::*;
 use super::calculate_hash;
@@ -182,7 +185,7 @@ impl NodeServer {
 		self.set_predecessor(None);
 		let ctx = context::current();
 		let n = self.get_connection(node).await;
-		let succ_list = n.find_successor_list_rpc(ctx, self.node.id).await??;
+		let succ_list = n.find_successor_list_rpc(ctx, self.node.id).await?;
 		self.set_successor_list(succ_list);
 		debug!("Node {}: joined node {}", self.node.id, node.id);
 		Ok(())
@@ -223,14 +226,15 @@ impl NodeServer {
 						n.notify_rpc(ctx, self.node.clone()).await.unwrap_or(());
 					}
 
-					break;
+					return;
 				},
 				Err(e) => {
-					error!("Node {}: fail to stabilize: {}", self.node.id, e);
+					error!("{}: fail to stabilize: {}", self.node, e);
 					// Fail to connect to succ, try next
 				}
 			}
 		}
+		panic!("{}: no live successors!", self.node);
 	}
 
 	// Figure 7: n.fix_fingers
@@ -326,10 +330,7 @@ impl NodeServer {
 			};
 		}
 
-		Err(DhtError::NoLiveSucc {
-			node: self.node.clone(),
-			id: id
-		})
+		Err(NoLiveReplica(id))
 	}
 
 	// Set key on the ring
@@ -338,7 +339,7 @@ impl NodeServer {
 		let succ_list = self.find_successor_list(id).await?;
 		let c = self.get_connection(&succ_list[0]).await;
 
-		c.replicate_rpc(context::current(), key, value).await??;
+		c.replicate_rpc(context::current(), key, value).await?;
 		Ok(())
 	}
 
@@ -379,98 +380,139 @@ impl NodeServer {
 #[tarpc::server]
 impl NodeService for NodeServer {
 	async fn get_node_rpc(self, _: context::Context) -> Node {
-		debug!("Node {}: get_node_rpc called", self.node.id);
-		let node = self.node.clone();
-		debug!("Node {}: get_node_rpc called", self.node.id);
-		node
+		self.node.clone()
 	}
 
 	async fn get_predecessor_rpc(self, _: context::Context) -> Option<Node> {
-		debug!("Node {}: get_predecessor_rpc called", self.node.id);
-		let pred = self.get_predecessor();
-		debug!("Node {}: get_predecessor_rpc finished", self.node.id);
-		pred
+		self.get_predecessor()
 	}
 
 	async fn get_successor_rpc(self, _: context::Context) -> Node {
-		debug!("Node {}: get_successor_rpc called", self.node.id);
-		let succ = self.get_successor();
-		debug!("Node {}: get_successor_rpc finished", self.node.id);
-		succ
+		self.get_successor()
 	}
 
 	async fn get_successor_list_rpc(self, _: context::Context) -> Vec<Node> {
-		debug!("Node {}: get_successor_rpc called", self.node.id);
-		let succ_list = self.get_successor_list();
-		debug!("Node {}: get_successor_rpc finished", self.node.id);
-		succ_list
+		self.get_successor_list()
 	}
 
-	async fn find_successor_list_rpc(mut self, _: context::Context, id: Digest) -> RpcResult<Vec<Node>> {
-		debug!("Node {}: find_successor_rpc called", self.node.id);
-		let succ_list = self.find_successor_list(id).await?;
-		debug!("Node {}: find_successor_rpc finished", self.node.id);
-		Ok(succ_list)
+	async fn find_successor_list_rpc(mut self, _: context::Context, id: Digest) -> Vec<Node> {
+		loop {
+			for i in 0..(self.config.retry_limit+1) {
+				match self.find_successor_list(id).await {
+					Ok(succ_list) => return succ_list,
+					Err(e) => {
+						error!("{}: find_successor_list_rpc failed (retry {}): {}", self.node, i, e);
+						tokio::time::sleep(
+							tokio::time::Duration::from_millis(self.config.retry_interval)
+						).await;
+					}
+				};
+			}
+
+			error!("{}: find_successor_list_rpc retry limit reached", self.node);
+			// call stabilize to update successor_list
+			self.stabilize().await;
+		}
 	}
 
-	async fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> RpcResult<Node> {
-		debug!("Node {}: find_predecessor_rpc called", self.node.id);
-		let pred = self.find_predecessor(id).await?;
-		debug!("Node {}: find_predecessor_rpc finished", self.node.id);
-		Ok(pred)
+	async fn find_predecessor_rpc(mut self, _: context::Context, id: Digest) -> Node {
+		loop {
+			for i in 0..(self.config.retry_limit+1) {
+				match self.find_predecessor(id).await {
+					Ok(succ_list) => return succ_list,
+					Err(e) => {
+						error!("{}: find_predecessor_rpc failed (retry {}): {}", self.node, i, e);
+						tokio::time::sleep(
+							tokio::time::Duration::from_millis(self.config.retry_interval)
+						).await;
+					}
+				};
+			}
+
+			error!("{}: find_predecessor_rpc retry limit reached", self.node);
+			// call stabilize to update successor_list
+			self.stabilize().await;
+		}
 	}
 
 	async fn closest_preceding_finger_rpc(mut self, _: context::Context, id: Digest) -> Node {
-		debug!("Node {}: closest_preceding_finger_rpc called", self.node.id);
-		let node = self.closest_preceding_finger(id).await;
-		debug!("Node {}: closest_preceding_finger_rpc finished", self.node.id);
-		node
+		self.closest_preceding_finger(id).await
 	}
 
 	async fn notify_rpc(mut self, _: context::Context, node: Node) {
-		debug!("Node {}: notify_rpc called", self.node.id);
-		self.notify(node).await;
-		debug!("Node {}: notify_rpc finished", self.node.id);
+		self.notify(node).await
 	}
 
 	async fn stabilize_rpc(mut self, _: context::Context) {
-		debug!("Node {}: stabilize_rpc called", self.node.id);
-		self.stabilize().await;
-		debug!("Node {}: stabilize_rpc finished", self.node.id);
+		self.stabilize().await
 	}
 
 	async fn get_local_rpc(self, _: context::Context, key: Key) -> Option<Value> {
-		debug!("Node {}: get_local_rpc called", self.node.id);
-		let value = self.store.get(&key);
-		debug!("Node {}: get_local_rpc finished", self.node.id);
-		value
+		self.store.get(&key)
 	}
 
 	async fn set_local_rpc(self, _: context::Context, key: Key, value: Option<Value>) {
-		debug!("Node {}: set_local_rpc called", self.node.id);
-		self.store.set(key, value);
-		debug!("Node {}: set_local_rpc finished", self.node.id);
+		self.store.set(key, value)
 	}
 
-	async fn get_rpc(mut self, _: context::Context, key: Key) -> RpcResult<Option<Value>> {
-		debug!("Node {}: get_rpc called", self.node.id);
-		let value = self.get(key).await?;
-		debug!("Node {}: get_rpc finished", self.node.id);
-		Ok(value)
+	async fn get_rpc(mut self, _: context::Context, key: Key) -> Option<Value> {
+		loop {
+			for i in 0..(self.config.retry_limit+1) {
+				match self.get(key.clone()).await {
+					Ok(value) => return value,
+					Err(e) => {
+						error!("{}: get_rpc failed (retry {}): {}", self.node, i, e);
+						tokio::time::sleep(
+							tokio::time::Duration::from_millis(self.config.retry_interval)
+						).await;
+					}
+				};
+			}
+
+			error!("{}: get_rpc retry limit reached", self.node);
+			// call stabilize to update successor_list
+			self.stabilize().await;
+		}
 	}
 
-	async fn set_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) -> RpcResult<()> {
-		debug!("Node {}: set_rpc called", self.node.id);
-		self.set(key, value).await?;
-		debug!("Node {}: set_rpc finished", self.node.id);
-		Ok(())
+	async fn set_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
+		loop {
+			for i in 0..(self.config.retry_limit+1) {
+				match self.set(key.clone(), value.clone()).await {
+					Ok(_) => return,
+					Err(e) => {
+						error!("{}: set_rpc failed (retry {}): {}", self.node, i, e);
+						tokio::time::sleep(
+							tokio::time::Duration::from_millis(self.config.retry_interval)
+						).await;
+					}
+				};
+			}
+
+			error!("{}: set_rpc retry limit reached", self.node);
+			// call stabilize to update successor_list
+			self.stabilize().await;
+		}
 	}
 
-	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) -> RpcResult<()> {
-		debug!("Node {}: replicate_rpc called", self.node.id);
-		self.replicate(key, value).await?;
-		debug!("Node {}: replicate_rpc finished", self.node.id);
-		Ok(())
+	async fn replicate_rpc(mut self, _: context::Context, key: Key, value: Option<Value>) {
+		loop {
+			for i in 0..(self.config.retry_limit+1) {
+				match self.replicate(key.clone(), value.clone()).await {
+					Ok(_) => return,
+					Err(e) => {
+						error!("{}: replicate_rpc failed (retry {}): {}", self.node, i, e);
+						tokio::time::sleep(
+							tokio::time::Duration::from_millis(self.config.retry_interval)
+						).await;
+					}
+				};
+			}
+
+			error!("{}: replicate_rpc retry limit reached", self.node);
+			// call stabilize to update successor_list
+			self.stabilize().await;
+		}
 	}
 }
 
