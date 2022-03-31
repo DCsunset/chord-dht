@@ -92,12 +92,9 @@ impl NodeServer {
 		*self.predecessor.write().unwrap() = node;
 	}
 
-	// Start the server
+	/// Start the server
 	pub async fn start(&mut self, join_node: Option<Node>) -> DhtResult<tokio::task::JoinHandle<()>> {
-		if let Some(n) = join_node.as_ref() {
-			self.join(&n).await?;
-		}
-
+		// Listen locally first
 		let mut listener = tarpc::serde_transport::tcp::listen(&self.node.addr, Bincode::default).await?;
 		let server = self.clone();
 		// Listen for rpc call
@@ -114,6 +111,19 @@ impl NodeServer {
 				.for_each(|_| async {})
 				.await;
 		});
+
+		// Join node after server starts
+		if let Some(n) = join_node.as_ref() {
+			match self.join(&n).await {
+				Ok(_) => (),
+				Err(e) => {
+					return Err(JoinFailure {
+						node: n.clone(),
+						message: e.to_string()
+					});
+				}
+			};
+		}
 
 		// Periodically stabilize
 		let mut server = self.clone();
