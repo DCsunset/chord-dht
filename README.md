@@ -5,7 +5,13 @@ A DHT (distributed hash table) implementation in Rust based on Chord with high p
 ## Features built upon Chord
 
 * In-memory key-value DHT
-* Lazy replication
+* Replication
+* Fault tolerance
 
-Lazy replication is preferred because the in-memory DHT is aimed to store ephemeral data (e.g. user tokens).
-It is much more efficient for this kind of use cases.
+The in-memory key-value DHT is aimed to be efficient when storing ephemeral data (e.g. user tokens).
+
+## TODO
+
+- [] Transfer keys when joining or a node is back
+- [] Allow node to leave
+- [] Replicate keys when a node is down
