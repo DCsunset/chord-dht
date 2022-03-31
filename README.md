@@ -12,6 +12,7 @@ The in-memory key-value DHT is aimed to be efficient when storing ephemeral data
 
 ## TODO
 
-- [] Transfer keys when joining or a node is back
-- [] Allow node to leave
-- [] Replicate keys when a node is down
+- [ ] Transfer keys when joining or a node is back
+- [ ] Allow node to leave
+- [ ] Replicate keys when a node is down
+- [ ] Benchmarking
