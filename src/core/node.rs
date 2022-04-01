@@ -104,7 +104,6 @@ impl NodeServer {
 		let mut listener_rx = rx.clone();
 		// Listen for rpc call
 		let listener_handle = tokio::spawn(async move {
-			// TODO: graceful shutdown
 			listener.config_mut().max_frame_length(usize::MAX);
 			let listener_fut = listener
 				.filter_map(|r| future::ready(r.ok()))
@@ -115,11 +114,16 @@ impl NodeServer {
 				})
 				.buffer_unordered(server.config.max_connections as usize)
 				.for_each(|_| async {});
+
+			// listener_fut.await;
+			debug!("{}: listening", server.node);
 			
 			tokio::select! {
-				_ = listener_fut => (),
+				_ = listener_fut => {
+					warn!("{}: listener terminated", server.node);
+				},
 				_ = listener_rx.changed() => {
-					debug!("{}: listener shutdown", server.node);
+					debug!("{}: listener stopped gracefully", server.node);
 				}
 			};
 		});
@@ -139,28 +143,29 @@ impl NodeServer {
 
 		// Periodically stabilize
 		let mut server = self.clone();
-		let stabilize_rx = rx.clone();
+		let mut stabilize_rx = rx.clone();
 		let stabilize_interval = self.config.stabilize_interval;
 		let stabilize_handle = tokio::spawn(async move {
 			if stabilize_interval > 0 {
 				let mut interval = tokio::time::interval(
 					tokio::time::Duration::from_millis(stabilize_interval)
 				);
-				// let mut s= server.clone();
-				loop {
-					// graceful shutdown
-					if *stabilize_rx.borrow() {
-						break;
+
+				tokio::select! {
+					_ = async {
+						interval.tick().await;
+						server.stabilize().await;
+					} => (),
+					_ = stabilize_rx.changed() => {
+						debug!("{}: stabilize task stopped gracefully", server.node);
 					}
-					interval.tick().await;
-					server.stabilize().await;
-				}
+				};
 			}
 		});
 
 		// Periodically refresh finger table
 		let mut server = self.clone();
-		let fix_finger_rx = rx.clone();
+		let mut fix_finger_rx = rx.clone();
 		let fix_finger_interval = self.config.fix_finger_interval;
 		let fix_finger_handle = tokio::spawn(async move {
 			if fix_finger_interval > 0 {
@@ -169,16 +174,17 @@ impl NodeServer {
 				);
 				// StdRng can be sent across threads
 				let mut rng = rand::prelude::StdRng::from_entropy();
-				// let mut s= server.clone();
-				loop {
-					// graceful shutdown
-					if *fix_finger_rx.borrow() {
-						break;
+
+				tokio::select! {
+					_ = async {
+						interval.tick().await;
+						let index = rng.gen_range(1..NUM_BITS);
+						server.fix_finger(index).await;
+					} => (),
+					_ = fix_finger_rx.changed() => {
+						debug!("{}: fix_finger task stopped gracefully", server.node);
 					}
-					interval.tick().await;
-					let index = rng.gen_range(1..NUM_BITS);
-					server.fix_finger(index).await;
-				}
+				};
 			}
 		});
 
@@ -602,7 +608,7 @@ mod tests {
 			..Config::default()
 		};
 		let mut s0 = NodeServer::new(n0.clone(), config.clone());
-		s0.start(None).await?;
+		let m0 = s0.start(None).await?;
 		s0.stabilize().await;
 		// single-node ring
 		assert_eq!(s0.get_predecessor().unwrap().id, 0);
@@ -611,7 +617,7 @@ mod tests {
 
 		// Node 1 joins node 0
 		let mut s1 = NodeServer::new(n1.clone(), config.clone());
-		s1.start(Some(n0.clone())).await?;
+		let m1 = s1.start(Some(n0.clone())).await?;
 		assert_eq!(s1.get_successor().id, 0);
 
 		// Stabilize c1 first to notify c0
@@ -639,7 +645,7 @@ mod tests {
 
 		// Node 3 joins node 1
 		let mut s3 = NodeServer::new(n3.clone(), config.clone());
-		s3.start(Some(n1.clone())).await?;
+		let m3 = s3.start(Some(n1.clone())).await?;
 		s3.stabilize().await;
 		s1.stabilize().await;
 		s0.stabilize().await;
@@ -674,7 +680,7 @@ mod tests {
 
 		// Node 6 joins node 0
 		let mut s6 = NodeServer::new(n6.clone(), config.clone());
-		s6.start(Some(n0.clone())).await?;
+		let m6 = s6.start(Some(n0.clone())).await?;
 		s6.stabilize().await;
 		s3.stabilize().await;
 		s1.stabilize().await;
@@ -716,6 +722,10 @@ mod tests {
 			assert_eq!(table[2].id, 0);
 		}
 
+		m0.stop().await?;
+		m1.stop().await?;
+		m3.stop().await?;
+		m6.stop().await?;
 		Ok(())
 	}
 }
