@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
 	let config = Config::default();
 	let mut s = NodeServer::new(node, config);
-	let handle = s.start(join_node).await?;
-	handle.await?;
+	let manager = s.start(join_node).await?;
+	manager.wait().await?;
 	Ok(())
 }

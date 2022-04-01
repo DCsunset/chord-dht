@@ -21,7 +21,7 @@ use super::{
 		DhtError::*
 	}
 };
-use crate::rpc::*;
+use crate::{rpc::*, server::ServerManager};
 use super::calculate_hash;
 
 // Data part of the node
@@ -93,14 +93,20 @@ impl NodeServer {
 	}
 
 	/// Start the server
-	pub async fn start(&mut self, join_node: Option<Node>) -> DhtResult<tokio::task::JoinHandle<()>> {
+	/// Returns if the listener starts
+	pub async fn start(&mut self, join_node: Option<Node>) -> DhtResult<ServerManager> {
+		// channel used to shutdown (true means shutdown)
+		let (tx, rx) = tokio::sync::watch::channel(false);
+
 		// Listen locally first
 		let mut listener = tarpc::serde_transport::tcp::listen(&self.node.addr, Bincode::default).await?;
 		let server = self.clone();
+		let mut listener_rx = rx.clone();
 		// Listen for rpc call
-		let handle = tokio::spawn(async move {
+		let listener_handle = tokio::spawn(async move {
+			// TODO: graceful shutdown
 			listener.config_mut().max_frame_length(usize::MAX);
-			listener
+			let listener_fut = listener
 				.filter_map(|r| future::ready(r.ok()))
 				.map(tarpc::server::BaseChannel::with_defaults)
 				.map(|channel| async {
@@ -108,8 +114,14 @@ impl NodeServer {
 					channel.execute(server.clone().serve()).await;
 				})
 				.buffer_unordered(server.config.max_connections as usize)
-				.for_each(|_| async {})
-				.await;
+				.for_each(|_| async {});
+			
+			tokio::select! {
+				_ = listener_fut => (),
+				_ = listener_rx.changed() => {
+					debug!("{}: listener shutdown", server.node);
+				}
+			};
 		});
 
 		// Join node after server starts
@@ -127,25 +139,31 @@ impl NodeServer {
 
 		// Periodically stabilize
 		let mut server = self.clone();
+		let stabilize_rx = rx.clone();
 		let stabilize_interval = self.config.stabilize_interval;
-		if stabilize_interval > 0 {
-			tokio::spawn(async move {
+		let stabilize_handle = tokio::spawn(async move {
+			if stabilize_interval > 0 {
 				let mut interval = tokio::time::interval(
 					tokio::time::Duration::from_millis(stabilize_interval)
 				);
 				// let mut s= server.clone();
 				loop {
+					// graceful shutdown
+					if *stabilize_rx.borrow() {
+						break;
+					}
 					interval.tick().await;
 					server.stabilize().await;
 				}
-			});
-		}
+			}
+		});
 
 		// Periodically refresh finger table
 		let mut server = self.clone();
+		let fix_finger_rx = rx.clone();
 		let fix_finger_interval = self.config.fix_finger_interval;
-		if fix_finger_interval > 0 {
-			tokio::spawn(async move {
+		let fix_finger_handle = tokio::spawn(async move {
+			if fix_finger_interval > 0 {
 				let mut interval = tokio::time::interval(
 					tokio::time::Duration::from_millis(fix_finger_interval)
 				);
@@ -153,15 +171,29 @@ impl NodeServer {
 				let mut rng = rand::prelude::StdRng::from_entropy();
 				// let mut s= server.clone();
 				loop {
+					// graceful shutdown
+					if *fix_finger_rx.borrow() {
+						break;
+					}
 					interval.tick().await;
 					let index = rng.gen_range(1..NUM_BITS);
 					server.fix_finger(index).await;
 				}
-			});
-		}
+			}
+		});
 
 		info!("{}: listening at {}", self.node, self.node.addr);
-		Ok(handle)
+		// An aggregated handle for all tasks
+		let joined_handle = future::join_all(vec![
+			listener_handle,
+			stabilize_handle,
+			fix_finger_handle
+		]);
+
+		Ok(ServerManager {
+			handle: joined_handle,
+			tx: tx
+		})
 	}
 
 	// Calculate start field of finger table (see Table 1)

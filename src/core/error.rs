@@ -11,6 +11,10 @@ pub enum DhtError {
 		node: Node,
 		message: String
 	},
+	#[error("Server error")]
+	ServerError(#[from] tokio::task::JoinError),
+	#[error("ServerManager error")]
+	ServerManagerError(#[from] tokio::sync::watch::error::SendError<bool>),
 	#[error("RPC error")]
 	RpcError(#[from] tarpc::client::RpcError),
 	#[error("IO error")]
