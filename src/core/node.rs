@@ -208,22 +208,22 @@ impl NodeServer {
 		self.node.id.wrapping_add(1 << k)
 	}
 	
-	async fn get_connection(&mut self, node: &Node) -> NodeServiceClient {
+	async fn get_connection(&mut self, node: &Node) -> DhtResult<NodeServiceClient> {
 		// Use block to drop map immediately after use
 		{
 			let map = self.connection_map.read().unwrap();
 			if let Some(c) = map.get(&node.id) {
 				// client can be cloned with lost cost
-				return c.clone();
+				return Ok(c.clone());
 			}
 		}
 		{
 			debug!("{}: connecting to {}", self.node, node);
-			let c = crate::client::setup_client(&node.addr).await;
+			let c = crate::client::setup_client(&node.addr).await?;
 			debug!("{}: connected to {}", self.node, node);
 			let mut map = self.connection_map.write().unwrap();
 			map.insert(node.id, c.clone());
-			return c;
+			return Ok(c);
 		}
 	}
 
@@ -232,7 +232,7 @@ impl NodeServer {
 		debug!("{}: joining {}", self.node, node);
 		self.set_predecessor(None);
 		let ctx = context::current();
-		let n = self.get_connection(node).await;
+		let n = self.get_connection(node).await?;
 		let succ_list = n.find_successor_list_rpc(ctx, self.node.id).await?;
 		self.set_successor_list(succ_list);
 		debug!("{}: joined {}", self.node, node);
@@ -245,7 +245,14 @@ impl NodeServer {
 
 		let successor_list = self.get_successor_list();
 		for mut succ in successor_list.into_iter() {
-			let mut n = self.get_connection(&succ).await;
+			let mut n = match self.get_connection(&succ).await {
+				Ok(v) => v,
+				Err(e) => {
+					error!("{}: failed to connect to {}: {}", self.node, succ, e);
+					// Try next successor
+					continue;
+				}
+			};
 
 			match n.get_predecessor_rpc(ctx).await {
 				Ok(pred) => {
@@ -259,7 +266,14 @@ impl NodeServer {
 					};
 					if in_range(x.id, self.node.id, succ.id) {
 						// update connection because succ change
-						n = self.get_connection(&x).await;
+						n = match self.get_connection(&x).await {
+							Ok(v) => v,
+							Err(e) => {
+								error!("{}: failed to connect to {}: {}", self.node, succ, e);
+								// Try next successor
+								continue;
+							}
+						};
 						// update succ
 						succ = x;
 					}
@@ -302,7 +316,7 @@ impl NodeServer {
 	// from figure 4: n.find_successor
 	async fn find_successor_list(&mut self, id: Digest) -> DhtResult<Vec<Node>> {
 		let n = self.find_predecessor(id).await?;
-		let c = self.get_connection(&n).await;
+		let c = self.get_connection(&n).await?;
 		let succ_list = c.get_successor_list_rpc(context::current()).await?;
 		Ok(succ_list)
 	}
@@ -312,14 +326,14 @@ impl NodeServer {
 		debug!("{}: find_predecessor({})", self.node, id);
 		let mut n = self.node.clone();
 		let mut succ = self.get_successor();
-		let mut conn = self.get_connection(&n).await;
+		let mut conn = self.get_connection(&n).await?;
 		let ctx = context::current();
 
 		// stop when id in (n, succ]
 		while !(in_range(id, n.id, succ.id) || id == succ.id) {
 			debug!("{}: find_predecessor range ({}, {}]", self.node, n.id, succ.id);
 			n = conn.closest_preceding_finger_rpc(ctx, id).await?;
-			conn = self.get_connection(&n).await;
+			conn = self.get_connection(&n).await?;
 			succ = conn.get_successor_rpc(ctx).await?;
 		}
 		debug!("{}: find_predecessor({}) returns {}", self.node, id, n);
@@ -368,7 +382,7 @@ impl NodeServer {
 		let id = calculate_hash(&key);
 		let succ_list = self.find_successor_list(id).await?;
 		for succ in succ_list.iter() {
-			let c = self.get_connection(&succ).await;
+			let c = self.get_connection(&succ).await?;
 			match c.get_local_rpc(context::current(), key.clone()).await {
 				Ok(value) => return Ok(value),
 				Err(e) => {
@@ -385,7 +399,7 @@ impl NodeServer {
 	async fn set(&mut self, key: Key, value: Option<Value>) -> DhtResult<()> {
 		let id = calculate_hash(&key);
 		let succ_list = self.find_successor_list(id).await?;
-		let c = self.get_connection(&succ_list[0]).await;
+		let c = self.get_connection(&succ_list[0]).await?;
 
 		c.replicate_rpc(context::current(), key, value).await?;
 		Ok(())
@@ -405,7 +419,7 @@ impl NodeServer {
 			let mut fut_list = Vec::new();
 			for i in 0..num {
 				let node = self.successor_list.read().unwrap()[i].clone();
-				let c = self.get_connection(&node).await;
+				let c = self.get_connection(&node).await?;
 				conn_list.push(c);
 			}
 

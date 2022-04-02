@@ -47,13 +47,13 @@ async fn test_kv_store() -> anyhow::Result<()> {
 	// Node 1 initializes
 	let mut s0 = NodeServer::new(n0.clone(), config.clone());
 	s0.start(None).await?;
-	let c0 = setup_client(&n0.addr).await;
+	let c0 = setup_client(&n0.addr).await?;
 	s0.stabilize().await;
 
 	// Node 1 joins node 0
 	let mut s1 = NodeServer::new(n1.clone(), config.clone());
 	s1.start(Some(n0.clone())).await?;
-	let c1 = setup_client(&n1.addr).await;
+	let c1 = setup_client(&n1.addr).await?;
 	s1.stabilize().await;
 	s0.stabilize().await;
 
@@ -63,7 +63,7 @@ async fn test_kv_store() -> anyhow::Result<()> {
 	// Node 3 joins node 1
 	let mut s3 = NodeServer::new(n3.clone(), config.clone());
 	s3.start(Some(n1.clone())).await?;
-	let c3 = setup_client(&n3.addr).await;
+	let c3 = setup_client(&n3.addr).await?;
 	s3.stabilize().await;
 	s1.stabilize().await;
 	s0.stabilize().await;
@@ -76,7 +76,7 @@ async fn test_kv_store() -> anyhow::Result<()> {
 	// Node 6 joins node 0
 	let mut s6 = NodeServer::new(n6.clone(), config.clone());
 	s6.start(Some(n0.clone())).await?;
-	let c6 = setup_client(&n6.addr).await;
+	let c6 = setup_client(&n6.addr).await?;
 	s6.stabilize().await;
 	s3.stabilize().await;
 	s1.stabilize().await;
