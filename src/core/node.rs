@@ -11,7 +11,7 @@ use tarpc::{
 	serde::Deserialize
 };
 use futures::{future, prelude::*};
-use log::{info, warn, debug, error};
+use log::{info, warn, debug};
 use super::{
 	ring::*,
 	config::*,
@@ -254,7 +254,7 @@ impl NodeServer {
 			let mut n = match self.get_connection(&succ).await {
 				Ok(v) => v,
 				Err(e) => {
-					error!("{}: failed to connect to {}: {}", self.node, succ, e);
+					warn!("{}: failed to connect to {}: {}", self.node, succ, e);
 					// Try next successor
 					continue;
 				}
@@ -275,7 +275,7 @@ impl NodeServer {
 						n = match self.get_connection(&x).await {
 							Ok(v) => v,
 							Err(e) => {
-								error!("{}: failed to connect to {}: {}", self.node, succ, e);
+								warn!("{}: failed to connect to {}: {}", self.node, succ, e);
 								// Try next successor
 								continue;
 							}
@@ -297,7 +297,7 @@ impl NodeServer {
 					return;
 				},
 				Err(e) => {
-					error!("{}: fail to stabilize: {}", self.node, e);
+					warn!("{}: fail to stabilize: {}", self.node, e);
 					// Fail to connect to succ, remove it and try next
 					self.remove_connection(&succ);
 				}
@@ -314,7 +314,7 @@ impl NodeServer {
 				table[index] = succ[0].clone();
 			},
 			Err(e) => {
-				error!("{}: failed to fix finger: {}", self.node, e);
+				warn!("{}: failed to fix finger: {}", self.node, e);
 			}
 		};
 	}
@@ -393,7 +393,7 @@ impl NodeServer {
 			match c.get_local_rpc(context::current(), key.clone()).await {
 				Ok(value) => return Ok(value),
 				Err(e) => {
-					error!("{}: fail to get key digest {} from {}: {}", self.node, id, succ, e);
+					warn!("{}: fail to get key digest {} from {}: {}", self.node, id, succ, e);
 					// Continue trying next replica
 				}
 			};
@@ -470,7 +470,7 @@ impl NodeService for NodeServer {
 				match self.find_successor_list(id).await {
 					Ok(succ_list) => return succ_list,
 					Err(e) => {
-						error!("{}: find_successor_list_rpc failed (retry {}): {}", self.node, i, e);
+						warn!("{}: find_successor_list_rpc failed (retry {}): {}", self.node, i, e);
 						tokio::time::sleep(
 							tokio::time::Duration::from_millis(self.config.retry_interval)
 						).await;
@@ -478,7 +478,7 @@ impl NodeService for NodeServer {
 				};
 			}
 
-			error!("{}: find_successor_list_rpc retry limit reached", self.node);
+			warn!("{}: find_successor_list_rpc retry limit reached", self.node);
 			// call stabilize to update successor_list
 			self.stabilize().await;
 		}
@@ -490,7 +490,7 @@ impl NodeService for NodeServer {
 				match self.find_predecessor(id).await {
 					Ok(succ_list) => return succ_list,
 					Err(e) => {
-						error!("{}: find_predecessor_rpc failed (retry {}): {}", self.node, i, e);
+						warn!("{}: find_predecessor_rpc failed (retry {}): {}", self.node, i, e);
 						tokio::time::sleep(
 							tokio::time::Duration::from_millis(self.config.retry_interval)
 						).await;
@@ -498,7 +498,7 @@ impl NodeService for NodeServer {
 				};
 			}
 
-			error!("{}: find_predecessor_rpc retry limit reached", self.node);
+			warn!("{}: find_predecessor_rpc retry limit reached", self.node);
 			// call stabilize to update successor_list
 			self.stabilize().await;
 		}
@@ -530,7 +530,7 @@ impl NodeService for NodeServer {
 				match self.get(key.clone()).await {
 					Ok(value) => return value,
 					Err(e) => {
-						error!("{}: get_rpc failed (retry {}): {}", self.node, i, e);
+						warn!("{}: get_rpc failed (retry {}): {}", self.node, i, e);
 						tokio::time::sleep(
 							tokio::time::Duration::from_millis(self.config.retry_interval)
 						).await;
@@ -538,7 +538,7 @@ impl NodeService for NodeServer {
 				};
 			}
 
-			error!("{}: get_rpc retry limit reached", self.node);
+			warn!("{}: get_rpc retry limit reached", self.node);
 			// call stabilize to update successor_list
 			self.stabilize().await;
 		}
@@ -550,7 +550,7 @@ impl NodeService for NodeServer {
 				match self.set(key.clone(), value.clone()).await {
 					Ok(_) => return,
 					Err(e) => {
-						error!("{}: set_rpc failed (retry {}): {}", self.node, i, e);
+						warn!("{}: set_rpc failed (retry {}): {}", self.node, i, e);
 						tokio::time::sleep(
 							tokio::time::Duration::from_millis(self.config.retry_interval)
 						).await;
@@ -558,7 +558,7 @@ impl NodeService for NodeServer {
 				};
 			}
 
-			error!("{}: set_rpc retry limit reached", self.node);
+			warn!("{}: set_rpc retry limit reached", self.node);
 			// call stabilize to update successor_list
 			self.stabilize().await;
 		}
@@ -570,7 +570,7 @@ impl NodeService for NodeServer {
 				match self.replicate(key.clone(), value.clone()).await {
 					Ok(_) => return,
 					Err(e) => {
-						error!("{}: replicate_rpc failed (retry {}): {}", self.node, i, e);
+						warn!("{}: replicate_rpc failed (retry {}): {}", self.node, i, e);
 						tokio::time::sleep(
 							tokio::time::Duration::from_millis(self.config.retry_interval)
 						).await;
@@ -578,7 +578,7 @@ impl NodeService for NodeServer {
 				};
 			}
 
-			error!("{}: replicate_rpc retry limit reached", self.node);
+			warn!("{}: replicate_rpc retry limit reached", self.node);
 			// call stabilize to update successor_list
 			self.stabilize().await;
 		}

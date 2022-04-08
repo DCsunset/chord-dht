@@ -55,7 +55,7 @@ async fn test_fault_tolerance() -> anyhow::Result<()> {
 	// Node 1 joins node 0
 	let mut s1 = NodeServer::new(n1.clone(), config.clone());
 	let m1 = s1.start(Some(n0.clone())).await?;
-	let c1 = setup_client(&n1.addr).await?;
+	let _c1 = setup_client(&n1.addr).await?;
 	s1.stabilize().await;
 	s0.stabilize().await;
 
@@ -65,7 +65,7 @@ async fn test_fault_tolerance() -> anyhow::Result<()> {
 	// Node 3 joins node 1
 	let mut s3 = NodeServer::new(n3.clone(), config.clone());
 	let m3 = s3.start(Some(n1.clone())).await?;
-	let c3 = setup_client(&n3.addr).await?;
+	let _c3 = setup_client(&n3.addr).await?;
 	s3.stabilize().await;
 	s1.stabilize().await;
 	s0.stabilize().await;
@@ -78,7 +78,7 @@ async fn test_fault_tolerance() -> anyhow::Result<()> {
 	// Node 6 joins node 0
 	let mut s6 = NodeServer::new(n6.clone(), config.clone());
 	let m6 = s6.start(Some(n0.clone())).await?;
-	let c6 = setup_client(&n6.addr).await?;
+	let _c6 = setup_client(&n6.addr).await?;
 	s6.stabilize().await;
 	s3.stabilize().await;
 	s1.stabilize().await;
