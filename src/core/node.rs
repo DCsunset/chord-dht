@@ -226,6 +226,12 @@ impl NodeServer {
 			return Ok(c);
 		}
 	}
+	
+	/// Remove broken connections
+	pub fn remove_connection(&self, node: &Node) {
+		let mut map = self.connection_map.write().unwrap();
+		map.remove(&node.id);
+	}
 
 	// Figure 7: n.join
 	pub async fn join(&mut self, node: &Node) -> DhtResult<()> {
@@ -292,7 +298,8 @@ impl NodeServer {
 				},
 				Err(e) => {
 					error!("{}: fail to stabilize: {}", self.node, e);
-					// Fail to connect to succ, try next
+					// Fail to connect to succ, remove it and try next
+					self.remove_connection(&succ);
 				}
 			}
 		}
