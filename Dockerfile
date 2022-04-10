@@ -1,9 +1,9 @@
-FROM rust:1.60 as builder
-WORKDIR /src
-COPY . .
-RUN cargo install --path .
+FROM rust:1.60 as build-env
+WORKDIR /app
+COPY . /app
+RUN cargo build --release
 
-FROM alpine:latest
+FROM gcr.io/distroless/cc
 LABEL MAINTAINER="DCsunset"
-COPY --from=builder /usr/local/cargo/bin/chord-dht-* /
+COPY --from=build-env /app/target/release/chord-dht-* /usr/bin/
 
