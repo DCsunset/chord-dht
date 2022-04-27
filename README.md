@@ -87,3 +87,9 @@ The in-memory key-value DHT is aimed to be efficient when storing ephemeral data
 
 - [ ] Transfer existing keys when node is down or joins the ring
 - [ ] Allow node to leave
+
+
+## License
+
+Licensed under the [AGPLv3](LICENSE) license.
+
