@@ -1,10 +1,26 @@
 # chord-dht
 
 [![crates.io](https://badgen.net/crates/v/chord-dht)](https://crates.io/crates/chord-dht)
+[![docker](https://badgen.net/docker/size/dcsunset/chord-dht)](https://hub.docker.com/repository/docker/dcsunset/chord-dht)
 
 A DHT (distributed hash table) implementation in Rust based on Chord with high performance and data replication.
 
 It can be used either as a library or as a standalone application.
+
+## Installation
+
+For library, add `chord-dht` to the dependencies in your `Cargo.toml`.
+
+For standalone binaries, use `cargo install chord-dht`.
+You can also use the docker image:
+
+```sh
+# For server (suppose the port to use is <port>)
+docker run -d -p <port>:<port> chord-dht chord-dht-server <server_args>
+
+# For client
+docker run -it chord-dht chord-dht-client <client_args>
+```
 
 ## Usage
 
