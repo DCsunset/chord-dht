@@ -2,6 +2,14 @@
 name = "chord-dht"
 version = "0.1.0"
 edition = "2021"
+authors = ["DCsunset"]
+description = "A DHT implementation in Rust based on Chord with high peformance and data replication."
+readme = "README.md"
+repository = "https://github.com/DCsunset/chord-dht"
+license = "AGPL-3.0"
+categories = ["database-implementations", "command-line-utilities"]
+keywords = ["chord", "dht"]
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
