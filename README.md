@@ -1,5 +1,7 @@
 # chord-dht
 
+[![crates.io](https://badgen.net/crates/v/chord-dht)](https://crates.io/crates/chord-dht)
+
 A DHT (distributed hash table) implementation in Rust based on Chord with high peformance and data replication.
 
 It can be used either as a library or as a standalone application.
